@@ -17,6 +17,7 @@ import '../services/migration_service.dart';
 import '../utils/extensions.dart';
 import '../utils/snackbar_helper.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/category_management_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -498,6 +499,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: context.t('delete_all_data'),
                   iconColor: AppColors.error,
                   onTap: _clearAllData,
+                ),
+              ],
+            ),
+
+            // Master Data
+            SettingsSection(
+              title: 'Master Data',
+              children: [
+                SettingsTile(
+                  icon: Icons.category,
+                  title: 'Kelola Kategori',
+                  subtitle: 'Tambah, edit, hapus kategori aset',
+                  iconColor: AppColors.primary,
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => const CategoryManagementDialog(),
+                    );
+                  },
                 ),
               ],
             ),

@@ -3,8 +3,12 @@ import '../utils/extensions.dart';
 import 'package:intl/intl.dart';
 import '../models/asset_model.dart';
 import '../models/user_model.dart';
+import '../models/asset_category_model.dart';
+import '../models/room_model.dart';
 import '../services/asset_service.dart';
 import '../services/user_service.dart';
+import '../services/category_service.dart';
+import '../services/room_service.dart';
 import '../utils/app_colors.dart';
 
 import '../utils/snackbar_helper.dart';
@@ -29,10 +33,14 @@ class AssetDetailDialog extends StatefulWidget {
 class _AssetDetailDialogState extends State<AssetDetailDialog> {
   final AssetService assetService = AssetService();
   final UserService userService = UserService();
+  final CategoryService categoryService = CategoryService();
+  final RoomService roomService = RoomService();
 
   late Asset _asset;
   bool isLoading = true;
   User? currentHolder;
+  AssetCategory? assetCategory;
+  Room? assignedRoom;
   List<Map<String, dynamic>> transferHistory = [];
 
   @override
@@ -58,7 +66,23 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
         currentHolder = null;
       }
 
-      // 3. Fetch history
+      // 3. Fetch category
+      if (_asset.categoryId != null) {
+        assetCategory = await categoryService.getCategoryById(
+          _asset.categoryId!,
+        );
+      } else {
+        assetCategory = null;
+      }
+
+      // 4. Fetch assigned room
+      if (_asset.assignedToRoomId != null) {
+        assignedRoom = await roomService.getRoomById(_asset.assignedToRoomId!);
+      } else {
+        assignedRoom = null;
+      }
+
+      // 5. Fetch history
       final history = await assetService.getTransferHistoryWithNames(
         _asset.id!,
       );
@@ -494,6 +518,15 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
                                 child: Column(
                                   children: [
                                     _buildDetailRow(
+                                      'Kategori',
+                                      assetCategory?.name ??
+                                          'Tidak Berkategori',
+                                    ),
+                                    _buildDetailRow(
+                                      'Ruangan',
+                                      assignedRoom?.displayName ?? 'Tidak Ada',
+                                    ),
+                                    _buildDetailRow(
                                       'Description',
                                       _asset.description ?? '-',
                                     ),
@@ -749,7 +782,8 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
                                               // Save to backend
                                               final success = await assetService
                                                   .markAsMaintained(_asset.id!);
-                                              if (success && mounted) {
+                                              if (!context.mounted) return;
+                                              if (success) {
                                                 ScaffoldMessenger.of(
                                                   context,
                                                 ).showSnackBar(

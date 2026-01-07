@@ -41,8 +41,9 @@ class CategoryService {
 
   /// Update an existing category
   Future<void> updateCategory(AssetCategory category) async {
-    if (category.id == null)
+    if (category.id == null) {
       throw Exception('Category ID is required for update');
+    }
 
     await _supabase
         .from('asset_categories')

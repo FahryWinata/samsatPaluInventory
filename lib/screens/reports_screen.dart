@@ -581,7 +581,7 @@ class _ReportsScreenState extends State<ReportsScreen>
               thirdSignerNipController.text = '';
 
               // Show confirmation
-              if (context.mounted) {
+              if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Pengaturan export telah direset'),

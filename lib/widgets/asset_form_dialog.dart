@@ -2,9 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/asset_model.dart';
+import '../models/asset_category_model.dart';
+import '../models/room_model.dart';
 import '../utils/app_colors.dart';
 import '../services/storage_service.dart';
-import '../utils/extensions.dart'; // Keep if used for context.t
+import '../services/category_service.dart';
+import '../services/room_service.dart';
+import '../utils/extensions.dart';
 
 class AssetFormDialog extends StatefulWidget {
   final Asset? asset;
@@ -24,7 +28,16 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
   String? _imagePath;
   final ImagePicker _picker = ImagePicker();
   final StorageService _storageService = StorageService();
+  final CategoryService _categoryService = CategoryService();
+  final RoomService _roomService = RoomService();
   bool _isUploading = false;
+
+  // Category & Room state
+  List<AssetCategory> _categories = [];
+  List<Room> _rooms = [];
+  int? _selectedCategoryId;
+  int? _selectedRoomId;
+  AssetCategory? _selectedCategory;
 
   bool get isEditing => widget.asset != null;
 
@@ -40,6 +53,29 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
     );
     _purchaseDate = widget.asset?.purchaseDate;
     _imagePath = widget.asset?.imagePath;
+    _selectedCategoryId = widget.asset?.categoryId;
+    _selectedRoomId = widget.asset?.assignedToRoomId;
+    _loadCategoriesAndRooms();
+  }
+
+  Future<void> _loadCategoriesAndRooms() async {
+    try {
+      final categories = await _categoryService.getAllCategories();
+      final rooms = await _roomService.getAllRooms();
+      if (mounted) {
+        setState(() {
+          _categories = categories;
+          _rooms = rooms;
+          if (_selectedCategoryId != null) {
+            _selectedCategory = categories
+                .where((c) => c.id == _selectedCategoryId)
+                .firstOrNull;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading categories/rooms: $e');
+    }
   }
 
   @override
@@ -144,6 +180,8 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
         purchaseDate: _purchaseDate,
         status: widget.asset?.status ?? 'available',
         currentHolderId: widget.asset?.currentHolderId,
+        categoryId: _selectedCategoryId,
+        assignedToRoomId: _selectedRoomId,
         imagePath: _imagePath,
         createdAt: widget.asset?.createdAt ?? now,
         updatedAt: now,
@@ -278,23 +316,92 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Serial Number
-                  TextFormField(
-                    controller: _serialController,
-                    decoration: const InputDecoration(
-                      labelText: 'Serial Number *',
-                      hintText: 'e.g., SN-12345',
-                      prefixIcon: Icon(Icons.qr_code),
+                  // Category Dropdown
+                  DropdownButtonFormField<int?>(
+                    initialValue: _selectedCategoryId,
+                    decoration: InputDecoration(
+                      labelText: 'Kategori',
+                      prefixIcon: const Icon(Icons.category),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter serial number';
-                      }
-                      return null;
+                    hint: const Text('Pilih Kategori (Opsional)'),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('Tidak Ada Kategori'),
+                      ),
+                      ..._categories.map(
+                        (cat) => DropdownMenuItem<int?>(
+                          value: cat.id,
+                          child: Text(cat.name),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedCategoryId = value;
+                        _selectedCategory = value != null
+                            ? _categories
+                                  .where((c) => c.id == value)
+                                  .firstOrNull
+                            : null;
+                      });
                     },
-                    textCapitalization: TextCapitalization.characters,
                   ),
                   const SizedBox(height: 16),
+
+                  // Identifier (optional, label changes based on category)
+                  TextFormField(
+                    controller: _serialController,
+                    decoration: InputDecoration(
+                      labelText:
+                          _selectedCategory?.identifierLabel ?? 'Identifier',
+                      hintText:
+                          _selectedCategory?.identifierType == 'vehicle_id'
+                          ? 'Contoh: DN 1234 AB'
+                          : 'Contoh: SN-12345',
+                      prefixIcon: const Icon(Icons.qr_code),
+                      helperText: 'Opsional',
+                    ),
+                    textCapitalization:
+                        _selectedCategory?.identifierType == 'vehicle_id'
+                        ? TextCapitalization.characters
+                        : TextCapitalization.none,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Room Assignment (shown if category supports room)
+                  if (_selectedCategory == null ||
+                      _selectedCategory!.requiresRoom) ...[
+                    DropdownButtonFormField<int?>(
+                      initialValue: _selectedRoomId,
+                      decoration: InputDecoration(
+                        labelText: 'Ruangan',
+                        prefixIcon: const Icon(Icons.meeting_room),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      hint: const Text('Pilih Ruangan (Opsional)'),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('Tidak Ada Ruangan'),
+                        ),
+                        ..._rooms.map(
+                          (room) => DropdownMenuItem<int?>(
+                            value: room.id,
+                            child: Text(room.displayName),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _selectedRoomId = value),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // Description
                   TextFormField(
