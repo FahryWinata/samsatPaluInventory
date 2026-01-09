@@ -10,6 +10,7 @@ class Asset {
   final int? assignedToRoomId;
   final String? imagePath;
   final String? maintenanceLocation;
+  final int quantity; // New field
   // Maintenance reminder fields
   final bool requiresMaintenance;
   final int? maintenanceIntervalDays;
@@ -30,6 +31,7 @@ class Asset {
     this.assignedToRoomId,
     this.imagePath,
     this.maintenanceLocation,
+    this.quantity = 1, // Default to 1
     this.requiresMaintenance = false,
     this.maintenanceIntervalDays,
     this.lastMaintenanceDate,
@@ -50,15 +52,21 @@ class Asset {
     int? currentHolderId,
     bool clearCurrentHolderId = false,
     int? categoryId,
+    bool clearCategoryId = false,
     int? assignedToRoomId,
     bool clearAssignedToRoomId = false,
     String? imagePath,
     bool clearImagePath = false,
     String? maintenanceLocation,
+    bool clearMaintenanceLocation = false,
+    int? quantity,
     bool? requiresMaintenance,
     int? maintenanceIntervalDays,
+    bool clearMaintenanceIntervalDays = false,
     DateTime? lastMaintenanceDate,
+    bool clearLastMaintenanceDate = false,
     DateTime? nextMaintenanceDate,
+    bool clearNextMaintenanceDate = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -74,24 +82,33 @@ class Asset {
       currentHolderId: clearCurrentHolderId
           ? null
           : (currentHolderId ?? this.currentHolderId),
-      categoryId: categoryId ?? this.categoryId,
+      categoryId: clearCategoryId ? null : (categoryId ?? this.categoryId),
       assignedToRoomId: clearAssignedToRoomId
           ? null
           : (assignedToRoomId ?? this.assignedToRoomId),
       imagePath: clearImagePath ? null : (imagePath ?? this.imagePath),
-      maintenanceLocation: maintenanceLocation ?? this.maintenanceLocation,
+      maintenanceLocation: clearMaintenanceLocation
+          ? null
+          : (maintenanceLocation ?? this.maintenanceLocation),
+      quantity: quantity ?? this.quantity,
       requiresMaintenance: requiresMaintenance ?? this.requiresMaintenance,
-      maintenanceIntervalDays:
-          maintenanceIntervalDays ?? this.maintenanceIntervalDays,
-      lastMaintenanceDate: lastMaintenanceDate ?? this.lastMaintenanceDate,
-      nextMaintenanceDate: nextMaintenanceDate ?? this.nextMaintenanceDate,
+      maintenanceIntervalDays: clearMaintenanceIntervalDays
+          ? null
+          : (maintenanceIntervalDays ?? this.maintenanceIntervalDays),
+      lastMaintenanceDate: clearLastMaintenanceDate
+          ? null
+          : (lastMaintenanceDate ?? this.lastMaintenanceDate),
+      nextMaintenanceDate: clearNextMaintenanceDate
+          ? null
+          : (nextMaintenanceDate ?? this.nextMaintenanceDate),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
   Map<String, dynamic> toMap() {
-    final map = <String, dynamic>{
+    return {
+      'id': id,
       'name': name,
       'identifier_value': identifierValue,
       'description': description,
@@ -102,6 +119,7 @@ class Asset {
       'assigned_to_room_id': assignedToRoomId,
       'image_path': imagePath,
       'maintenance_location': maintenanceLocation,
+      'quantity': quantity,
       'requires_maintenance': requiresMaintenance,
       'maintenance_interval_days': maintenanceIntervalDays,
       'last_maintenance_date': lastMaintenanceDate?.toIso8601String(),
@@ -109,28 +127,24 @@ class Asset {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
-    if (id != null) {
-      map['id'] = id;
-    }
-    return map;
   }
 
   factory Asset.fromMap(Map<String, dynamic> map) {
     return Asset(
       id: map['id'],
-      name: map['name'],
-      identifierValue:
-          map['identifier_value'] ?? map['serial_number'], // Backward compat
+      name: map['name'] ?? '',
+      identifierValue: map['identifier_value'],
       description: map['description'],
       purchaseDate: map['purchase_date'] != null
           ? DateTime.parse(map['purchase_date'])
           : null,
-      status: map['status'],
+      status: map['status'] ?? 'available',
       currentHolderId: map['current_holder_id'],
       categoryId: map['category_id'],
       assignedToRoomId: map['assigned_to_room_id'],
       imagePath: map['image_path'],
       maintenanceLocation: map['maintenance_location'],
+      quantity: map['quantity'] ?? 1,
       requiresMaintenance: map['requires_maintenance'] ?? false,
       maintenanceIntervalDays: map['maintenance_interval_days'],
       lastMaintenanceDate: map['last_maintenance_date'] != null

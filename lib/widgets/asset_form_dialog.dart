@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/asset_model.dart';
 import '../models/asset_category_model.dart';
@@ -41,6 +42,7 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
   AssetCategory? _selectedCategory;
 
   bool get isEditing => widget.asset != null;
+  int _quantity = 1;
 
   @override
   void initState() {
@@ -181,6 +183,12 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
 
   void _submit() {
     if (_formKey.currentState!.validate()) {
+      _formKey.currentState!.save();
+
+      setState(() {
+        _isUploading = true;
+      });
+
       final now = DateTime.now();
       final asset = Asset(
         id: widget.asset?.id,
@@ -197,6 +205,8 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
         categoryId: _selectedCategoryId,
         assignedToRoomId: _selectedRoomId,
         imagePath: _imagePath,
+        maintenanceLocation: widget.asset?.maintenanceLocation,
+        quantity: _quantity,
         createdAt: widget.asset?.createdAt ?? now,
         updatedAt: now,
       );
@@ -402,6 +412,39 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
                               : TextCapitalization.none,
                         ),
                         const SizedBox(height: 16),
+
+                        // Quantity (New)
+                        if (!isEditing) ...[
+                          TextFormField(
+                            initialValue: '1',
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            decoration: const InputDecoration(
+                              labelText: 'Jumlah',
+                              prefixIcon: Icon(Icons.numbers),
+                              helperText:
+                                  'Masukkan jumlah untuk aset identik (bulk)',
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Jumlah harus diisi';
+                              }
+                              final n = int.tryParse(value);
+                              if (n == null || n < 1) {
+                                return 'Jumlah minimal 1';
+                              }
+                              return null;
+                            },
+                            onSaved: (value) {
+                              if (value != null) {
+                                _quantity = int.tryParse(value) ?? 1;
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                        ],
 
                         // Room Assignment (shown if category supports room)
                         if (_selectedCategory == null ||

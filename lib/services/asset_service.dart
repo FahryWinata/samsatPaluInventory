@@ -79,6 +79,77 @@ class AssetService {
     );
   }
 
+  // Split an asset into two
+  Future<void> splitAsset(Asset original, int splitQuantity) async {
+    if (splitQuantity >= original.quantity || splitQuantity <= 0) {
+      throw Exception('Invalid split quantity');
+    }
+
+    final remainingQuantity = original.quantity - splitQuantity;
+
+    // 1. Update original asset's quantity
+    await supabase
+        .from('assets')
+        .update({
+          'quantity': remainingQuantity,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', original.id!);
+
+    // 2. Create new asset with split quantity
+    final newAsset = original.copyWith(
+      id: null, // Clear ID to create new
+      quantity: splitQuantity,
+      identifierValue: null, // Clear serial as it's a new "copy"
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    await createAsset(newAsset);
+
+    // 3. Log activity
+    await activityService.logActivity(
+      action: 'split',
+      entityType: 'asset',
+      entityId: original.id!,
+      entityName: original.name,
+      details: 'Split $splitQuantity items from ${original.name}',
+    );
+
+    _invalidateAssetCaches();
+  }
+
+  // Merge source asset into target asset
+  Future<void> mergeAssets(Asset source, Asset target) async {
+    if (source.id == target.id) {
+      throw Exception('Cannot merge asset into itself');
+    }
+
+    // 1. Update target quantity
+    final newQuantity = target.quantity + source.quantity;
+    await supabase
+        .from('assets')
+        .update({
+          'quantity': newQuantity,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', target.id!);
+
+    // 2. Delete source asset
+    await supabase.from('assets').delete().eq('id', source.id!);
+
+    // 3. Log activity
+    await activityService.logActivity(
+      action: 'merge',
+      entityType: 'asset',
+      entityId: target.id!,
+      entityName: target.name,
+      details: 'Merged ${source.quantity} items from asset #${source.id}',
+    );
+
+    _invalidateAssetCaches();
+  }
+
   /// Helper to invalidate all asset-related caches
   void _invalidateAssetCaches() {
     _cache.invalidate(CacheKeys.allAssets);

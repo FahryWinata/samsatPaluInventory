@@ -214,17 +214,6 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(context.t('maintenance_reminder')),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
-            tooltip: context.t('refresh'),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
       body: Column(
         children: [
           // Search Bar

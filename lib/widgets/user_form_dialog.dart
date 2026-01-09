@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../utils/extensions.dart';
 import '../models/user_model.dart';
 import '../utils/app_colors.dart';
+import '../services/room_service.dart';
+import '../models/room_model.dart';
 
 class UserFormDialog extends StatefulWidget {
   final User? user;
@@ -17,6 +19,11 @@ class _UserFormDialogState extends State<UserFormDialog> {
   late TextEditingController _nameController;
   late TextEditingController _departmentController;
 
+  final RoomService _roomService = RoomService();
+  List<Room> _rooms = [];
+  bool _isLoadingRooms = true;
+  String? _selectedRoomName;
+
   bool get isEditing => widget.user != null;
 
   @override
@@ -26,6 +33,41 @@ class _UserFormDialogState extends State<UserFormDialog> {
     _departmentController = TextEditingController(
       text: widget.user?.department ?? '',
     );
+    _selectedRoomName = widget.user?.department;
+    _loadRooms();
+  }
+
+  Future<void> _loadRooms() async {
+    try {
+      final rooms = await _roomService.getAllRooms();
+      if (mounted) {
+        setState(() {
+          _rooms = rooms;
+          _isLoadingRooms = false;
+
+          // Verify if the current selected room exists in the list
+          if (_selectedRoomName != null && _selectedRoomName!.isNotEmpty) {
+            final exists = _rooms.any((r) => r.name == _selectedRoomName);
+            if (!exists) {
+              // If current value is not in list (legacy data), deciding whether to keep it or force selection.
+              // For a strict dropdown, we might clear it or add it to list?
+              // Standard behavior: reset to null if invalid, or allow custom validation.
+              // Here we'll set to null to force user to pick a valid room.
+              _selectedRoomName = null;
+            }
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingRooms = false;
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load rooms: $e')));
+      }
+    }
   }
 
   @override
@@ -40,9 +82,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
       final user = User(
         id: widget.user?.id,
         name: _nameController.text.trim(),
-        department: _departmentController.text.trim().isEmpty
-            ? null
-            : _departmentController.text.trim(),
+        department: _selectedRoomName, // Use selected room name
         createdAt: widget.user?.createdAt ?? DateTime.now(),
       );
       Navigator.of(context).pop(user);
@@ -115,16 +155,38 @@ class _UserFormDialogState extends State<UserFormDialog> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Department Field
-                  TextFormField(
-                    controller: _departmentController,
-                    decoration: const InputDecoration(
-                      labelText: 'Department',
-                      hintText: 'e.g., IT, HR, Finance',
-                      prefixIcon: Icon(Icons.business),
-                    ),
-                    textCapitalization: TextCapitalization.words,
-                  ),
+                  // Department Dropdown (Rooms)
+                  _isLoadingRooms
+                      ? const Center(child: CircularProgressIndicator())
+                      : DropdownButtonFormField<String>(
+                          initialValue: _selectedRoomName,
+                          decoration: const InputDecoration(
+                            labelText: 'Department / Room',
+                            hintText: 'Select Room',
+                            prefixIcon: Icon(
+                              Icons.meeting_room,
+                            ), // Changed icon to represent Room
+                          ),
+                          items: _rooms.map((room) {
+                            return DropdownMenuItem<String>(
+                              value: room.name,
+                              child: Text(room.displayName),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedRoomName = value;
+                              _departmentController.text = value ?? '';
+                            });
+                          },
+                          validator: (value) {
+                            // Optional: Make it required? User didn't specify.
+                            // department is optional in model (based on 'String?' in User class? Let's assume matches TextField logic which was optional or checked in submit)
+                            // Original submit: department: _department.text.isEmpty ? null : ...
+                            return null;
+                          },
+                          isExpanded: true,
+                        ),
                   const SizedBox(height: 24),
 
                   // Buttons

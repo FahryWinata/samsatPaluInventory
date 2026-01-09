@@ -61,37 +61,95 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Future<void> _loadItems() async {
     _perf.startTimer('InventoryScreen._loadItems');
 
+    setState(() {
+      isLoading = true;
+      hasError = false;
+    });
+
+    // Determine if we use server-side or client-side filtering
+    bool simpleFilters = (filterStatus == 'all' || filterStatus == 'out');
+    isUsingServerSide = simpleFilters;
+
     // OPTIMIZATION: Run stats and first page fetch in parallel
     _perf.startTimer('InventoryScreen.parallelLoad');
     try {
-      final results = await Future.wait([
-        inventoryService.getInventoryStats(),
-        _fetchPageData(1), // Helper that returns data without setState
-      ]);
-      _perf.stopTimer(
-        'InventoryScreen.parallelLoad',
-        details: 'Both calls complete',
-      );
+      if (simpleFilters) {
+        // Server-side path: parallel fetch stats + paginated data
+        final results = await Future.wait([
+          inventoryService.getInventoryStats(),
+          inventoryService.getItemsPaginated(
+            page: 1,
+            limit: _itemsPerPage,
+            searchQuery: searchQuery,
+            filterStatus: filterStatus == 'all' ? null : filterStatus,
+          ),
+        ]);
+        _perf.stopTimer(
+          'InventoryScreen.parallelLoad',
+          details: 'Server-side complete',
+        );
 
-      final stats = results[0] as Map<String, int>;
-      final pageResult =
-          results[1] as ({List<InventoryItem> items, int count})?;
+        final stats = results[0] as Map<String, int>;
+        final pageResult =
+            results[1] as ({List<InventoryItem> items, int count});
 
-      if (mounted) {
-        setState(() {
-          totalItems = stats['total'] ?? 0;
-          outOfStockCount = stats['out'] ?? 0;
-          lowStockCount = stats['low'] ?? 0;
-          goodStockCount = stats['good'] ?? 0;
+        if (mounted) {
+          setState(() {
+            totalItems = stats['total'] ?? 0;
+            outOfStockCount = stats['out'] ?? 0;
+            lowStockCount = stats['low'] ?? 0;
+            goodStockCount = stats['good'] ?? 0;
 
-          if (pageResult != null) {
             items = pageResult.items;
             filteredItems = pageResult.items;
             totalMatchingItems = pageResult.count;
             _currentPage = 1;
+            isLoading = false;
+          });
+        }
+      } else {
+        // Client-side path for 'good' and 'low' filters
+        final results = await Future.wait([
+          inventoryService.getInventoryStats(),
+          inventoryService.getAllItems(),
+        ]);
+        _perf.stopTimer(
+          'InventoryScreen.parallelLoad',
+          details: 'Client-side complete',
+        );
+
+        final stats = results[0] as Map<String, int>;
+        final allItems = results[1] as List<InventoryItem>;
+
+        // Apply client-side filtering
+        final filtered = allItems.where((item) {
+          final matchesSearch =
+              searchQuery.isEmpty ||
+              item.name.toLowerCase().contains(searchQuery.toLowerCase());
+          bool matchesStatus = true;
+          if (filterStatus == 'good') {
+            matchesStatus = item.quantity > item.minimumStock;
+          } else if (filterStatus == 'low') {
+            matchesStatus =
+                item.quantity > 0 && item.quantity <= item.minimumStock;
           }
-          isLoading = false;
-        });
+          return matchesSearch && matchesStatus;
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            totalItems = stats['total'] ?? 0;
+            outOfStockCount = stats['out'] ?? 0;
+            lowStockCount = stats['low'] ?? 0;
+            goodStockCount = stats['good'] ?? 0;
+
+            items = allItems;
+            filteredItems = filtered;
+            totalMatchingItems = filtered.length;
+            _currentPage = 1;
+            isLoading = false;
+          });
+        }
       }
     } catch (e) {
       _perf.stopTimer('InventoryScreen.parallelLoad', details: 'ERROR: $e');
@@ -106,46 +164,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
 
     _perf.stopTimer('InventoryScreen._loadItems');
-  }
-
-  // Helper method that returns data without calling setState
-  Future<({List<InventoryItem> items, int count})?> _fetchPageData(
-    int page,
-  ) async {
-    bool simpleFilters = (filterStatus == 'all' || filterStatus == 'out');
-
-    if (simpleFilters) {
-      return await inventoryService.getItemsPaginated(
-        page: page,
-        limit: _itemsPerPage,
-        searchQuery: searchQuery,
-        filterStatus: filterStatus == 'all' ? null : filterStatus,
-      );
-    } else {
-      // Fallback to client-side for complex filters
-      final allItems = await inventoryService.getAllItems();
-      final filtered = allItems.where((item) {
-        final matchesSearch =
-            searchQuery.isEmpty ||
-            item.name.toLowerCase().contains(searchQuery.toLowerCase());
-        bool matchesStatus = true;
-        if (filterStatus == 'good') {
-          matchesStatus = item.quantity > item.minimumStock;
-        } else if (filterStatus == 'low') {
-          matchesStatus =
-              item.quantity > 0 && item.quantity <= item.minimumStock;
-        }
-        return matchesSearch && matchesStatus;
-      }).toList();
-
-      final startIdx = (page - 1) * _itemsPerPage;
-      final endIdx = startIdx + _itemsPerPage;
-      final pageItems = filtered.sublist(
-        startIdx,
-        endIdx > filtered.length ? filtered.length : endIdx,
-      );
-      return (items: pageItems, count: filtered.length);
-    }
   }
 
   Future<void> _fetchPage(int page) async {
@@ -437,7 +455,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.grey.withOpacity(0.05),
+                            color: Colors.grey.withValues(alpha: 0.05),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           ),
@@ -587,13 +605,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
           boxShadow: [
             if (isSelected)
               BoxShadow(
-                color: color.withOpacity(0.4),
+                color: color.withValues(alpha: 0.1),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               )
             else
               BoxShadow(
-                color: Colors.grey.withOpacity(0.05),
+                color: Colors.grey.withValues(alpha: 0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),

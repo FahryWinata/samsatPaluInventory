@@ -17,6 +17,7 @@ import '../widgets/error_widget.dart';
 import '../utils/extensions.dart';
 import '../utils/snackbar_helper.dart';
 import '../utils/performance_logger.dart';
+import '../widgets/custom_filter_dropdown.dart';
 
 class AssetsScreen extends StatefulWidget {
   const AssetsScreen({super.key});
@@ -49,8 +50,10 @@ class _AssetsScreenState extends State<AssetsScreen> {
 
   // Search Handling
   String searchQuery = '';
-  int? _selectedCategoryId;
-  int? _selectedRoomId;
+  // Multi-select state
+  List<int> _selectedCategoryIds = [];
+  List<int> _selectedRoomIds = [];
+
   List<({int id, String name})> _categories = [];
   List<({int id, String name})> _rooms = [];
   Map<int, String> _roomNames = {};
@@ -78,74 +81,66 @@ class _AssetsScreenState extends State<AssetsScreen> {
       hasError = false;
     });
 
+    // OPTIMIZATION: Parallel Fetch
+    _perf.startTimer('AssetsScreen.parallelFetch');
     try {
-      // OPTIMIZATION: Run all 4 API calls in parallel
-      _perf.startTimer('AssetsScreen.parallelFetch');
       final results = await Future.wait([
-        assetService.getAllAssets(),
-        userService.getAllUsers(),
-        categoryService.getAllCategories(),
-        roomService.getAllRooms(),
+        assetService.getAllAssets(), // 0
+        userService.getAllUsers(), // 1
+        categoryService.getAllCategories(), // 2
+        roomService.getAllRooms(), // 3
       ]);
       _perf.stopTimer(
         'AssetsScreen.parallelFetch',
         details: 'All 4 calls complete',
       );
 
-      final allAssets = results[0] as List<Asset>;
+      final assets = results[0] as List<Asset>;
       final users = results[1] as List<User>;
       final categories = results[2] as List<AssetCategory>;
-      final rooms = results[3] as List<Room>;
+      final rooms = results[3] as List<Room>; // Loaded rooms
 
-      // 2. Create holder names map
-      final namesMap = <int, String>{};
-      for (var user in users) {
-        if (user.id != null) namesMap[user.id!] = user.name;
-      }
+      // Prepare Lookups
+      final userMap = {for (var u in users) u.id!: u.name};
+      final catIcons = {
+        for (var c in categories) c.id!: c.icon, // Fixed: using c.icon
+      };
 
-      // 3. Create category icons map
-      final iconsMap = <int, IconData>{};
-      for (var cat in categories) {
-        if (cat.id != null) iconsMap[cat.id!] = cat.icon;
-      }
+      // Store categories/rooms for dropdowns
+      final categoryList =
+          categories.map((c) => (id: c.id ?? 0, name: c.name)).toList()
+            ..sort((a, b) => a.name.compareTo(b.name));
 
-      // 4. Create room names map
-      final roomNamesMap = <int, String>{};
-      for (var room in rooms) {
-        if (room.id != null) roomNamesMap[room.id!] = room.name;
-      }
+      final roomList = rooms.map((r) => (id: r.id ?? 0, name: r.name)).toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+
+      final roomNameMap = {for (var r in rooms) r.id!: r.name};
 
       if (mounted) {
         setState(() {
-          _allAssets = allAssets; // Store master list
-          holderNames = namesMap;
-          _categoryIcons = iconsMap;
-          _roomNames = roomNamesMap;
-          _categories = categories
-              .where((c) => c.id != null)
-              .map((c) => (id: c.id!, name: c.name))
-              .toList();
-          _rooms = rooms
-              .where((r) => r.id != null)
-              .map((r) => (id: r.id!, name: r.name))
-              .toList();
-          _applyFilters(); // Filter locally
+          _allAssets = assets;
+          holderNames = userMap;
+          _categoryIcons = catIcons;
+          _categories = categoryList;
+          _rooms = roomList;
+          _roomNames = roomNameMap;
+
+          _applyFilters(); // Initial distribution
           isLoading = false;
-          hasError = false;
         });
       }
       _perf.stopTimer(
         'AssetsScreen._loadAssets',
-        details: 'Success, total=${allAssets.length}',
+        details: 'Success, total=${assets.length}',
       );
     } catch (e) {
       _perf.stopTimer('AssetsScreen._loadAssets', details: 'ERROR: $e');
-      debugPrint('Error loading assets: $e');
+      debugPrint("Error loading assets: $e");
       if (mounted) {
         setState(() {
           isLoading = false;
           hasError = true;
-          errorMessage = context.t('failed_load_assets');
+          errorMessage = e.toString();
         });
       }
     }
@@ -171,15 +166,15 @@ class _AssetsScreenState extends State<AssetsScreen> {
         }
       }
 
-      // Category Filter
-      if (_selectedCategoryId != null &&
-          asset.categoryId != _selectedCategoryId) {
+      // Category Filter (Multi-select)
+      if (_selectedCategoryIds.isNotEmpty &&
+          !_selectedCategoryIds.contains(asset.categoryId)) {
         continue;
       }
 
-      // Room Filter
-      if (_selectedRoomId != null &&
-          asset.assignedToRoomId != _selectedRoomId) {
+      // Room Filter (Multi-select)
+      if (_selectedRoomIds.isNotEmpty &&
+          !_selectedRoomIds.contains(asset.assignedToRoomId)) {
         continue;
       }
 
@@ -239,14 +234,6 @@ class _AssetsScreenState extends State<AssetsScreen> {
     }
   }
 
-  Future<void> _showDetailDialog(Asset asset) async {
-    await showDialog(
-      context: context,
-      builder: (context) =>
-          AssetDetailDialog(asset: asset, onUpdate: _loadAssets),
-    );
-  }
-
   Future<void> _moveAsset(
     Asset asset,
     String newStatus, {
@@ -280,9 +267,6 @@ class _AssetsScreenState extends State<AssetsScreen> {
     String? maintenanceNote,
     bool isUndo = false,
   }) async {
-    // final oldStatus = asset.status; // Unused
-    // final oldHolderId = asset.currentHolderId; // Unused
-
     // 2. Optimistic UI Update
     setState(() {
       availableAssets.removeWhere((a) => a.id == asset.id);
@@ -294,171 +278,127 @@ class _AssetsScreenState extends State<AssetsScreen> {
         currentHolderId: targetUser?.id, // Set if assigning
       );
 
-      if (newStatus == 'available') availableAssets.add(updatedAsset);
-      if (newStatus == 'assigned') assignedAssets.add(updatedAsset);
-      if (newStatus == 'maintenance') maintenanceAssets.add(updatedAsset);
-
-      // Update master list
-      final index = _allAssets.indexWhere((a) => a.id == asset.id);
-      if (index != -1) {
-        _allAssets[index] = updatedAsset;
+      if (newStatus == 'available') {
+        availableAssets.add(updatedAsset);
       }
+      if (newStatus == 'assigned') {
+        assignedAssets.add(updatedAsset);
+      }
+      if (newStatus == 'maintenance') {
+        maintenanceAssets.add(updatedAsset);
+      }
+
+      _applyFilters();
     });
 
-    try {
-      // 3. Perform Database Update
-      bool success = false;
-      if (newStatus == 'assigned' && targetUser != null) {
-        success = await assetService.transferAsset(
-          assetId: asset.id!,
-          toUserId: targetUser.id!,
-        );
-      } else {
-        // Release (Available/Maintenance)
+    // 3. API Call
+    bool success = false;
+    if (newStatus == 'assigned' && targetUser != null) {
+      success = await assetService.transferAsset(
+        assetId: asset.id!,
+        toUserId: targetUser.id!,
+        notes: 'Assigned via Drag & Drop',
+      );
+    } else if (newStatus == 'maintenance') {
+      success = await assetService.updateAssetStatus(asset.id!, newStatus);
+    } else {
+      // Undo or simple status change
+      if (newStatus == 'available' && isUndo) {
         success = await assetService.releaseAsset(
           asset.id!,
-          newStatus,
-          notes: maintenanceNote,
+          'available',
+          notes: 'Undo/Drag to Available',
         );
+      } else {
+        success = await assetService.updateAssetStatus(asset.id!, newStatus);
       }
+    }
 
-      if (!success) throw Exception('Failed to update status');
-
-      // 4. Show Feedback (Undo removed as per request)
-    } catch (e) {
-      _loadAssets(); // Revert on error
+    // 4. Rollback if Error
+    if (!success) {
       if (mounted) {
-        SnackBarHelper.showError(context, 'Error: $e');
+        SnackBarHelper.showError(context, context.t('error_moving_asset'));
+        _loadAssets(); // Revert to server state
       }
     }
   }
 
   Future<User?> _showUserSelectionDialog() async {
-    final users = await userService.getAllUsers();
-    if (!mounted) return null;
-
-    return showDialog<User>(
+    return await showDialog<User>(
       context: context,
-      builder: (dialogContext) {
-        String searchQuery = '';
+      builder: (context) {
+        // Simple search state for dialog
+        String userSearch = '';
+
         return StatefulBuilder(
           builder: (context, setState) {
-            final filteredUsers = users
-                .where(
-                  (u) =>
-                      u.name.toLowerCase().contains(
-                        searchQuery.toLowerCase(),
-                      ) ||
-                      (u.department?.toLowerCase().contains(
-                            searchQuery.toLowerCase(),
-                          ) ??
-                          false),
-                )
-                .toList();
-
-            return Dialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Container(
-                width: 350,
-                padding: const EdgeInsets.all(16),
+            return AlertDialog(
+              title: Text(context.t('select_user')),
+              content: SizedBox(
+                width: double.maxFinite,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      context.t('select_holder'),
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 16),
-                    // Search Bar
                     TextField(
-                      decoration: InputDecoration(
-                        hintText: context.t('search_users'),
-                        prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 12,
-                        ),
-                        isDense: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Search User',
+                        prefixIcon: Icon(Icons.search),
                       ),
-                      onChanged: (value) {
+                      onChanged: (val) {
                         setState(() {
-                          searchQuery = value;
+                          userSearch = val;
                         });
                       },
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 10),
+                    FutureBuilder<List<User>>(
+                      future: userService
+                          .getAllUsers(), // Cached service handles performance
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const LinearProgressIndicator();
+                        }
+                        final users = snapshot.data!;
+                        final filtered = users
+                            .where(
+                              (u) => u.name.toLowerCase().contains(
+                                userSearch.toLowerCase(),
+                              ),
+                            )
+                            .toList();
+                        if (filtered.isEmpty) {
+                          return const Text('No users found');
+                        }
 
-                    if (filteredUsers.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          searchQuery.isEmpty
-                              ? context.t(
-                                  'no_users_found',
-                                ) // Or generic 'No users'
-                              : context.t('no_users_found'),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.grey),
-                        ),
-                      )
-                    else
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 300),
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: filteredUsers.length,
-                          itemBuilder: (context, index) {
-                            final user = filteredUsers[index];
-                            return ListTile(
-                              leading: CircleAvatar(
-                                radius: 16,
-                                backgroundColor: AppColors.primary,
-                                child: Text(
-                                  user.name.isNotEmpty
-                                      ? user.name[0].toUpperCase()
-                                      : '?',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white,
-                                  ),
+                        return ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: filtered.length,
+                            itemBuilder: (context, i) {
+                              final user = filtered[i];
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  child: Text(user.name[0]),
                                 ),
-                              ),
-                              title: Text(
-                                user.name,
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                              subtitle: Text(
-                                user.department ?? '-',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              onTap: () => Navigator.pop(dialogContext, user),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              dense: true,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              hoverColor: Colors.grey.shade100,
-                            );
-                          },
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, null),
-                      child: Text(context.t('cancel')),
+                                title: Text(user.name),
+                                subtitle: Text(user.department ?? ''),
+                                onTap: () => Navigator.pop(context, user),
+                              );
+                            },
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(context.t('cancel')),
+                ),
+              ],
             );
           },
         );
@@ -507,17 +447,6 @@ class _AssetsScreenState extends State<AssetsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(context.t('assets_kanban')),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadAssets,
-            tooltip: context.t('refresh'),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
       body: Column(
         children: [
           // Search and Add Bar
@@ -550,79 +479,64 @@ class _AssetsScreenState extends State<AssetsScreen> {
                 ),
                 const SizedBox(width: 12),
 
-                // Category Filter Dropdown
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<int?>(
-                      value: _selectedCategoryId,
-                      hint: const Text('Semua Kategori'),
-                      icon: const Icon(Icons.filter_list),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('Semua Kategori'),
-                        ),
-                        ..._categories.map(
-                          (cat) => DropdownMenuItem<int?>(
-                            value: cat.id,
-                            child: Text(cat.name),
-                          ),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedCategoryId = value;
-                          _applyFilters();
-                        });
-                      },
-                    ),
+                // Category Filter (Custom Widget)
+                SizedBox(
+                  width: 200,
+                  child: CustomFilterDropdown<({int id, String name})>(
+                    label: 'Categories',
+                    hint: context.t('select_category'),
+                    items: _categories,
+                    selectedItems: _categories
+                        .where((c) => _selectedCategoryIds.contains(c.id))
+                        .toList(),
+                    itemLabelBuilder: (item) => item.name,
+                    onChanged: (selected) {
+                      setState(() {
+                        _selectedCategoryIds = selected
+                            .map((e) => e.id)
+                            .toList();
+                        _applyFilters();
+                      });
+                    },
                   ),
                 ),
                 const SizedBox(width: 12),
 
-                // Room Filter Dropdown
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<int?>(
-                      value: _selectedRoomId,
-                      hint: const Text('Semua Ruangan'),
-                      icon: const Icon(Icons.room),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('Semua Ruangan'),
-                        ),
-                        ..._rooms.map(
-                          (room) => DropdownMenuItem<int?>(
-                            value: room.id,
-                            child: Text(room.name),
-                          ),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedRoomId = value;
-                          _applyFilters();
-                        });
-                      },
-                    ),
+                // Room Filter (Custom Widget)
+                SizedBox(
+                  width: 200,
+                  child: CustomFilterDropdown<({int id, String name})>(
+                    label: 'Rooms',
+                    hint: context.t('select_room'),
+                    items: _rooms,
+                    selectedItems: _rooms
+                        .where((r) => _selectedRoomIds.contains(r.id))
+                        .toList(),
+                    itemLabelBuilder: (item) => item.name,
+                    onChanged: (selected) {
+                      setState(() {
+                        _selectedRoomIds = selected.map((e) => e.id).toList();
+                        _applyFilters();
+                      });
+                    },
                   ),
                 ),
-                const SizedBox(width: 12),
+
+                const SizedBox(width: 16),
+
+                // Add Asset Button
                 ElevatedButton.icon(
                   onPressed: _showAddDialog,
                   icon: const Icon(Icons.add),
                   label: Text(context.t('add_asset')),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16,
+                      horizontal: 24,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -639,7 +553,6 @@ class _AssetsScreenState extends State<AssetsScreen> {
                       final isSmallScreen = constraints.maxWidth < 900;
 
                       if (isSmallScreen) {
-                        // Stack columns vertically on small screens
                         return SingleChildScrollView(
                           padding: const EdgeInsets.all(16),
                           child: Column(
@@ -671,7 +584,6 @@ class _AssetsScreenState extends State<AssetsScreen> {
                           ),
                         );
                       } else {
-                        // Show columns side by side on larger screens
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -821,6 +733,380 @@ class _AssetsScreenState extends State<AssetsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showDetailDialog(Asset asset) async {
+    await showDialog(
+      context: context,
+      builder: (context) => AssetDetailDialog(
+        asset: asset,
+        onUpdate: _loadAssets,
+        onSplit: asset.quantity > 1 ? () => _showSplitAssetDialog(asset) : null,
+        onMerge: () => _showMergeAssetDialog(asset),
+      ),
+    );
+  }
+
+  void _showMergeAssetDialog(Asset sourceAsset) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        List<Asset> candidates = [];
+        bool isLoadingCandidates = true;
+        Asset? selectedTarget;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            // Load candidates once
+            if (isLoadingCandidates) {
+              assetService.getAllAssets().then((allAssets) {
+                if (context.mounted) {
+                  setState(() {
+                    candidates = allAssets
+                        .where(
+                          (a) =>
+                              a.id != sourceAsset.id &&
+                              a.name.toLowerCase() ==
+                                  sourceAsset.name.toLowerCase(),
+                        )
+                        .toList();
+                    isLoadingCandidates = false;
+                  });
+                }
+              });
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Container(
+                width: 350,
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.merge_type,
+                            color: Colors.teal.shade700,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Merge Asset',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              Text(
+                                '${sourceAsset.name} (${sourceAsset.quantity} unit)',
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20),
+                          onPressed: () => Navigator.pop(context),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 16),
+
+                    // Content
+                    if (isLoadingCandidates)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(20),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    else if (candidates.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              color: Colors.orange.shade700,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'No assets with same name found.',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else ...[
+                      Text(
+                        'Select target:',
+                        style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 150),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: candidates.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 6),
+                          itemBuilder: (context, i) {
+                            final c = candidates[i];
+                            final isSelected = selectedTarget?.id == c.id;
+                            return InkWell(
+                              onTap: () => setState(() => selectedTarget = c),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? Colors.teal.shade50
+                                      : Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? Colors.teal
+                                        : Colors.transparent,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      isSelected
+                                          ? Icons.check_circle
+                                          : Icons.circle_outlined,
+                                      color: isSelected
+                                          ? Colors.teal
+                                          : Colors.grey,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '${c.name} (${c.quantity} unit)',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w500,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          Text(
+                                            'ID: ${c.id} • ${c.status}',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 20),
+                    // Actions
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: selectedTarget == null
+                              ? null
+                              : () async {
+                                  final target = selectedTarget!;
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Confirm Merge'),
+                                      content: Text(
+                                        'Merge into "${target.name}"?\n\n'
+                                        'Result: ${target.quantity + sourceAsset.quantity} units\n'
+                                        'Source will be deleted.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.red,
+                                            foregroundColor: Colors.white,
+                                          ),
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: const Text('Confirm'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+
+                                  if (confirm == true && context.mounted) {
+                                    Navigator.pop(context);
+                                    try {
+                                      await assetService.mergeAssets(
+                                        sourceAsset,
+                                        target,
+                                      );
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          this.context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Assets merged!'),
+                                          ),
+                                        );
+                                      }
+                                      _loadAssets();
+                                    } catch (e) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          this.context,
+                                        ).showSnackBar(
+                                          SnackBar(content: Text('Error: $e')),
+                                        );
+                                      }
+                                    }
+                                  }
+                                },
+                          child: const Text('Merge'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showSplitAssetDialog(Asset asset) {
+    // ... existing _showSplitAssetDialog implementation ...
+    showDialog(
+      context: context,
+      builder: (context) {
+        int splitQuantity = 1;
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('Split ${asset.name}'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Current quantity: ${asset.quantity}. How many new assets do you want to create?',
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Quantity for new asset(s)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        splitQuantity = int.tryParse(value) ?? 1;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed:
+                      splitQuantity <= 0 || splitQuantity >= asset.quantity
+                      ? null
+                      : () async {
+                          Navigator.pop(context);
+                          try {
+                            await assetService.splitAsset(asset, splitQuantity);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Asset split successfully'),
+                              ),
+                            );
+                            _loadAssets();
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error splitting asset: $e'),
+                              ),
+                            );
+                          }
+                        },
+                  child: const Text('Split'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

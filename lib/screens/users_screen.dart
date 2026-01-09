@@ -6,13 +6,11 @@ import '../models/asset_model.dart';
 import '../services/user_service.dart';
 import '../services/asset_service.dart';
 import '../services/room_service.dart';
-import '../widgets/user_card.dart';
 import '../widgets/user_form_dialog.dart';
 import '../widgets/user_detail_dialog.dart';
 import '../widgets/room_form_dialog.dart';
 import '../widgets/room_detail_dialog.dart';
-import '../widgets/skeleton_loader.dart';
-import '../widgets/error_widget.dart';
+import '../widgets/custom_table.dart';
 import '../utils/extensions.dart';
 import '../utils/snackbar_helper.dart';
 import '../utils/performance_logger.dart';
@@ -34,28 +32,60 @@ class _UsersScreenState extends State<UsersScreen>
 
   // User state
   List<User> users = [];
+  List<User> filteredUsers = [];
   Map<int, int> assetCounts = {};
   bool isLoadingUsers = true;
   bool hasUserError = false;
 
   // Room state
   List<Room> rooms = [];
+  List<Room> filteredRooms = [];
   Map<int, int> roomAssetCounts = {};
   bool isLoadingRooms = true;
   bool hasRoomError = false;
+
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_handleTabChange);
     _loadUsers();
     _loadRooms();
   }
 
+  void _handleTabChange() {
+    if (_tabController.indexIsChanging) return;
+    // Clear search when switching tabs? Or keep it? keeping it is simpler but might filter incorrectly if logic differs.
+    // We'll keep query but re-filter.
+    _applySearch();
+  }
+
   @override
   void dispose() {
+    _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _applySearch() {
+    setState(() {
+      if (_searchQuery.isEmpty) {
+        filteredUsers = users;
+        filteredRooms = rooms;
+      } else {
+        final query = _searchQuery.toLowerCase();
+        filteredUsers = users
+            .where((u) => u.name.toLowerCase().contains(query))
+            .toList();
+        filteredRooms = rooms
+            .where((r) => r.name.toLowerCase().contains(query))
+            .toList();
+      }
+    });
   }
 
   Future<void> _loadUsers() async {
@@ -97,6 +127,7 @@ class _UsersScreenState extends State<UsersScreen>
           assetCounts = counts;
           isLoadingUsers = false;
         });
+        _applySearch();
       }
       _perf.stopTimer(
         'UsersScreen._loadUsers',
@@ -152,6 +183,7 @@ class _UsersScreenState extends State<UsersScreen>
           roomAssetCounts = counts;
           isLoadingRooms = false;
         });
+        _applySearch();
       }
       _perf.stopTimer(
         'UsersScreen._loadRooms',
@@ -225,265 +257,366 @@ class _UsersScreenState extends State<UsersScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(context.t('users')),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              _loadUsers();
-              _loadRooms();
-            },
-          ),
-          const SizedBox(width: 8),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Pengguna', icon: Icon(Icons.people, size: 20)),
-            Tab(text: 'Ruangan', icon: Icon(Icons.meeting_room, size: 20)),
-          ],
-          labelColor: AppColors.primary,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: AppColors.primary,
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [_buildUserTab(), _buildRoomTab()],
-      ),
-    );
-  }
-
-  Widget _buildUserTab() {
-    return Column(
-      children: [
-        // Header
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${users.length} ${context.t('total_users')}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: _showAddUserDialog,
-                icon: const Icon(Icons.add),
-                label: Text(context.t('add_user')),
-              ),
-            ],
-          ),
-        ),
-        // List
-        Expanded(
-          child: isLoadingUsers
-              ? _buildLoadingSkeleton()
-              : hasUserError
-              ? ErrorDisplay(
-                  message: 'Failed to load users',
-                  onRetry: _loadUsers,
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: users.length,
-                  itemBuilder: (context, index) {
-                    final user = users[index];
-                    return UserCard(
-                      user: user,
-                      assetCount: assetCounts[user.id] ?? 0,
-                      onTap: () => _showUserDetailDialog(user),
-                    );
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRoomTab() {
-    return Column(
-      children: [
-        // Header
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${rooms.length} Total Ruangan',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: _showAddRoomDialog,
-                icon: const Icon(Icons.add),
-                label: const Text('Tambah Ruangan'),
-              ),
-            ],
-          ),
-        ),
-        // List
-        Expanded(
-          child: isLoadingRooms
-              ? _buildLoadingSkeleton()
-              : hasRoomError
-              ? ErrorDisplay(
-                  message: 'Failed to load rooms',
-                  onRetry: _loadRooms,
-                )
-              : rooms.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.meeting_room_outlined,
-                        size: 64,
-                        color: Colors.grey.shade400,
+      backgroundColor: Colors.grey.shade50,
+      body: Column(
+        children: [
+          // Header / Top Bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            color: Colors.white,
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    // Tab Buttons
+                    Expanded(
+                      child: Row(
+                        children: [
+                          _buildTabButton(0, 'People', users.length),
+                          const SizedBox(width: 24),
+                          _buildTabButton(1, 'Rooms', rooms.length),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Belum ada ruangan',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade600,
+                    ),
+
+                    // Search Bar
+                    SizedBox(
+                      width: 300,
+                      height: 40,
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (value) {
+                          _searchQuery = value;
+                          _applySearch();
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Search Name...',
+                          prefixIcon: const Icon(Icons.search, size: 20),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 0,
+                            horizontal: 16,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+
+                    // Action Button
+                    ElevatedButton.icon(
+                      onPressed: _tabController.index == 0
+                          ? _showAddUserDialog
+                          : _showAddRoomDialog,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: Text(
+                        _tabController.index == 0
+                            ? 'Add New People'
+                            : 'Add New Room',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 18,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tambahkan ruangan untuk mengelola lokasi aset',
-                        style: TextStyle(color: Colors.grey.shade500),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: rooms.length,
-                  itemBuilder: (context, index) {
-                    final room = rooms[index];
-                    return _buildRoomCard(room);
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRoomCard(Room room) {
-    final assetCount = roomAssetCounts[room.id] ?? 0;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        onTap: () => _showRoomDetailDialog(room),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              // Icon
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.meeting_room,
-                  color: AppColors.primary,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      room.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      room.displayName != room.name
-                          ? room.displayName
-                          : (room.description ?? 'Tidak ada deskripsi'),
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
-              ),
-              // Asset count badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: assetCount > 0
-                      ? AppColors.primary.withValues(alpha: 0.1)
-                      : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.inventory_2,
-                      size: 16,
-                      color: assetCount > 0 ? AppColors.primary : Colors.grey,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '$assetCount',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: assetCount > 0 ? AppColors.primary : Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(Icons.chevron_right, color: Colors.grey),
-            ],
+              ],
+            ),
           ),
-        ),
+
+          const Divider(height: 1, color: Color(0xFFEEEEEE)),
+
+          // Content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [_buildUserTable(), _buildRoomTable()],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildLoadingSkeleton() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: 6,
-      itemBuilder: (context, index) => const SkeletonListItem(),
+  Widget _buildTabButton(int index, String label, int count) {
+    return AnimatedBuilder(
+      animation: _tabController,
+      builder: (context, _) {
+        final selected = _tabController.index == index;
+        return InkWell(
+          onTap: () => _tabController.animateTo(index),
+          child: Container(
+            padding: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: selected ? AppColors.primary : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: selected ? AppColors.primary : Colors.grey,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? AppColors.primary.withValues(alpha: 0.1)
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: selected ? AppColors.primary : Colors.grey,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
+  }
+
+  Widget _buildUserTable() {
+    return CustomTable<User>(
+      isLoading: isLoadingUsers,
+      headers: const ['Name', 'Department', 'Role', 'Status', ''],
+      data: filteredUsers,
+      rowBuilder: (context, user, index) {
+        final holdingCount = assetCounts[user.id] ?? 0;
+        return Row(
+          children: [
+            // Name with Avatar
+            Expanded(
+              flex: 3,
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: _getAvatarColor(user.name),
+                    radius: 18,
+                    child: Text(
+                      user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    user.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Department (Room)
+            Expanded(
+              flex: 3,
+              child: Text(
+                user.department ?? '-',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+            // Role (Placeholder or Asset Count)
+            Expanded(
+              flex: 2,
+              child: Text(
+                '$holdingCount Assets',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+            // Status
+            Expanded(
+              flex: 2,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'Active',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Actions
+            Expanded(
+              flex: 1,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 18, color: Colors.grey),
+                    onPressed: () => _showUserDetailDialog(user),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildRoomTable() {
+    return CustomTable<Room>(
+      isLoading: isLoadingRooms,
+      headers: const ['Room Name', 'Location', 'Assets', 'Status', ''],
+      data: filteredRooms,
+      rowBuilder: (context, room, index) {
+        final holdingCount = roomAssetCounts[room.id] ?? 0;
+        return Row(
+          children: [
+            // Name
+            Expanded(
+              flex: 3,
+              child: Text(
+                room.name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
+            // Location
+            Expanded(
+              flex: 3,
+              child: Text(
+                room.displayName.contains(' - ')
+                    ? room.displayName.split(' - ').last.trim()
+                    : '-',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+            // Assets Count
+            Expanded(
+              flex: 2,
+              child: Text(
+                '$holdingCount items',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+            // Status/Tag
+            Expanded(
+              flex: 2,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: holdingCount > 0
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'Occupied',
+                          style: TextStyle(
+                            color: Colors.blue,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      )
+                    : Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'Empty',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            // Action
+            Expanded(
+              flex: 1,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 18, color: Colors.grey),
+                    onPressed: () => _showRoomDetailDialog(room),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Color _getAvatarColor(String name) {
+    if (name.isEmpty) return Colors.grey;
+    final colors = [
+      Colors.blue,
+      Colors.red,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.teal,
+    ];
+    return colors[name.codeUnitAt(0) % colors.length];
   }
 }

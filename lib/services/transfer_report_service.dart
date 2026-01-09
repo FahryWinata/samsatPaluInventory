@@ -60,7 +60,7 @@ class TransferReportService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.legal,
         margin: const pw.EdgeInsets.symmetric(horizontal: 50, vertical: 40),
         build: (context) {
           return [

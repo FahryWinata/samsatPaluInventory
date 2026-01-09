@@ -33,7 +33,7 @@ class ExportService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
+        pageFormat: PdfPageFormat.legal.landscape,
         margin: const pw.EdgeInsets.all(40),
         build: (context) => [
           _buildCustomHeader(logoImage, font, boldFont),
@@ -110,7 +110,7 @@ class ExportService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
+        pageFormat: PdfPageFormat.legal.landscape,
         margin: const pw.EdgeInsets.all(40),
         build: (context) => [
           _buildCustomHeader(logoImage, font, boldFont),
@@ -516,6 +516,18 @@ class ExportService {
     pw.Font boldFont,
   ) {
     return pw.Table(
+      columnWidths: {
+        0: const pw.FixedColumnWidth(25), // No
+        1: const pw.FlexColumnWidth(2), // Name
+        2: const pw.FixedColumnWidth(35), // Qty (New)
+        3: const pw.FlexColumnWidth(1.2), // Category
+        4: const pw.FlexColumnWidth(1.2), // Room
+        5: const pw.FixedColumnWidth(40), // Tahun
+        6: const pw.FlexColumnWidth(1.5), // Serial
+        7: const pw.FixedColumnWidth(50), // Status
+        8: const pw.FlexColumnWidth(1.5), // User
+        9: const pw.FlexColumnWidth(2.5), // Deskripsi
+      },
       border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
       children: [
         // Header
@@ -535,6 +547,12 @@ class ExportService {
               isHeader: true,
             ),
             _buildTableCell(
+              'Jml', // Short for Jumlah
+              boldFont,
+              align: pw.TextAlign.center,
+              isHeader: true,
+            ),
+            _buildTableCell(
               'Kategori',
               boldFont,
               align: pw.TextAlign.center,
@@ -547,7 +565,7 @@ class ExportService {
               isHeader: true,
             ),
             _buildTableCell(
-              'Tahun',
+              'Thn',
               boldFont,
               align: pw.TextAlign.center,
               isHeader: true,
@@ -566,6 +584,12 @@ class ExportService {
             ),
             _buildTableCell(
               'Pengguna',
+              boldFont,
+              align: pw.TextAlign.center,
+              isHeader: true,
+            ),
+            _buildTableCell(
+              'Deskripsi',
               boldFont,
               align: pw.TextAlign.center,
               isHeader: true,
@@ -591,6 +615,12 @@ class ExportService {
               ),
               _buildTableCell(asset.name, font),
               _buildTableCell(
+                asset.quantity.toString(),
+                font,
+                align: pw.TextAlign.center,
+              ),
+
+              _buildTableCell(
                 asset.categoryId != null
                     ? categoryNames[asset.categoryId] ?? '-'
                     : '-',
@@ -613,6 +643,7 @@ class ExportService {
               // Status color indicator
               _buildStatusColorCell(asset.status),
               _buildTableCell(holder, font),
+              _buildTableCell(asset.description ?? '-', font),
             ],
           );
         }),

@@ -37,7 +37,7 @@ class InventoryHistoryReportService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.legal.landscape,
         margin: const pw.EdgeInsets.all(40),
         build: (context) {
           return [

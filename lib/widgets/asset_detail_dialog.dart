@@ -21,12 +21,16 @@ class AssetDetailDialog extends StatefulWidget {
   final Asset asset;
   final VoidCallback onUpdate;
   final bool maintenanceMode;
+  final VoidCallback? onSplit;
+  final VoidCallback? onMerge;
 
   const AssetDetailDialog({
     super.key,
     required this.asset,
     required this.onUpdate,
     this.maintenanceMode = false,
+    this.onSplit,
+    this.onMerge,
   });
 
   @override
@@ -884,6 +888,32 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
                     ),
                   ] else ...[
                     // View Mode Buttons
+                    // Split Button
+                    if (widget.onSplit != null && !widget.maintenanceMode)
+                      IconButton(
+                        icon: const Icon(
+                          Icons.call_split,
+                          color: Colors.orangeAccent,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          widget.onSplit!();
+                        },
+                        tooltip: 'Split Asset',
+                      ),
+                    // Merge Button
+                    if (widget.onMerge != null && !widget.maintenanceMode)
+                      IconButton(
+                        icon: const Icon(
+                          Icons.merge_type,
+                          color: Colors.tealAccent,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          widget.onMerge!();
+                        },
+                        tooltip: 'Merge Asset',
+                      ),
                     if (!widget.maintenanceMode)
                       IconButton(
                         icon: const Icon(Icons.edit, color: Colors.blueAccent),
@@ -1140,6 +1170,10 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
                                             'Kategori',
                                             assetCategory?.name ??
                                                 'Tidak Berkategori',
+                                          ),
+                                          _buildDetailRow(
+                                            'Jumlah',
+                                            '${_asset.quantity} unit',
                                           ),
                                           _buildDetailRow(
                                             'Ruangan',

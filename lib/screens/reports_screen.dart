@@ -159,13 +159,6 @@ class _ReportsScreenState extends State<ReportsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text(context.t('reports')),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
-          const SizedBox(width: 8),
-        ],
-      ),
       body: Column(
         children: [
           // Custom Tab Bar

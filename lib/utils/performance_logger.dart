@@ -114,9 +114,8 @@ class PerformanceLogger {
           '║ $emoji ${_padRight(name, 40)} Avg: ${_padLeft('$avgMs', 5)}ms ║',
         );
         debugPrint(
-          '║    Calls: ${operationLogs.length}, Min: ${minMs}ms, Max: ${maxMs}ms'
-                  .padRight(65) +
-              '║',
+          '${'║    Calls: ${operationLogs.length}, Min: ${minMs}ms, Max: ${maxMs}ms'
+                  .padRight(65)}║',
         );
       }
     }
