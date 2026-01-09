@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import '../models/user_model.dart';
 import '../models/room_model.dart';
+import '../models/asset_model.dart';
 import '../services/user_service.dart';
 import '../services/asset_service.dart';
 import '../services/room_service.dart';
@@ -14,6 +15,7 @@ import '../widgets/skeleton_loader.dart';
 import '../widgets/error_widget.dart';
 import '../utils/extensions.dart';
 import '../utils/snackbar_helper.dart';
+import '../utils/performance_logger.dart';
 
 class UsersScreen extends StatefulWidget {
   const UsersScreen({super.key});
@@ -28,6 +30,7 @@ class _UsersScreenState extends State<UsersScreen>
   final userService = UserService();
   final assetService = AssetService();
   final roomService = RoomService();
+  final _perf = PerformanceLogger();
 
   // User state
   List<User> users = [];
@@ -56,20 +59,37 @@ class _UsersScreenState extends State<UsersScreen>
   }
 
   Future<void> _loadUsers() async {
+    _perf.startTimer('UsersScreen._loadUsers');
+
     setState(() {
       isLoadingUsers = true;
       hasUserError = false;
     });
 
     try {
-      final loadedUsers = await userService.getAllUsers();
+      // OPTIMIZATION: Parallel fetch users AND all assets (eliminates N+1 query)
+      final results = await Future.wait([
+        userService.getAllUsers(),
+        assetService.getAllAssets(),
+      ]);
+
+      final loadedUsers = results[0] as List<User>;
+      final allAssets = results[1] as List<Asset>;
+
+      _perf.logStep(
+        'UsersScreen._loadUsers',
+        'Parallel fetch: ${loadedUsers.length} users, ${allAssets.length} assets',
+      );
+
+      // Count assets per user client-side (instant vs 24 API calls)
       final counts = <int, int>{};
-      for (var user in loadedUsers) {
-        if (user.id != null) {
-          final assets = await assetService.getAssetsByHolder(user.id!);
-          counts[user.id!] = assets.length;
+      for (var asset in allAssets) {
+        if (asset.currentHolderId != null) {
+          counts[asset.currentHolderId!] =
+              (counts[asset.currentHolderId!] ?? 0) + 1;
         }
       }
+      _perf.logStep('UsersScreen._loadUsers', 'Client-side counting complete');
 
       if (mounted) {
         setState(() {
@@ -78,7 +98,12 @@ class _UsersScreenState extends State<UsersScreen>
           isLoadingUsers = false;
         });
       }
+      _perf.stopTimer(
+        'UsersScreen._loadUsers',
+        details: 'Success, users=${loadedUsers.length}',
+      );
     } catch (e) {
+      _perf.stopTimer('UsersScreen._loadUsers', details: 'ERROR: $e');
       if (mounted) {
         setState(() {
           isLoadingUsers = false;
@@ -89,20 +114,37 @@ class _UsersScreenState extends State<UsersScreen>
   }
 
   Future<void> _loadRooms() async {
+    _perf.startTimer('UsersScreen._loadRooms');
+
     setState(() {
       isLoadingRooms = true;
       hasRoomError = false;
     });
 
     try {
-      final loadedRooms = await roomService.getAllRooms();
+      // OPTIMIZATION: Parallel fetch rooms AND all assets (eliminates N+1 query)
+      final results = await Future.wait([
+        roomService.getAllRooms(),
+        assetService.getAllAssets(),
+      ]);
+
+      final loadedRooms = results[0] as List<Room>;
+      final allAssets = results[1] as List<Asset>;
+
+      _perf.logStep(
+        'UsersScreen._loadRooms',
+        'Parallel fetch: ${loadedRooms.length} rooms, ${allAssets.length} assets',
+      );
+
+      // Count assets per room client-side (instant vs N API calls)
       final counts = <int, int>{};
-      for (var room in loadedRooms) {
-        if (room.id != null) {
-          final assets = await roomService.getAssetsInRoom(room.id!);
-          counts[room.id!] = assets.length;
+      for (var asset in allAssets) {
+        if (asset.assignedToRoomId != null) {
+          counts[asset.assignedToRoomId!] =
+              (counts[asset.assignedToRoomId!] ?? 0) + 1;
         }
       }
+      _perf.logStep('UsersScreen._loadRooms', 'Client-side counting complete');
 
       if (mounted) {
         setState(() {
@@ -111,7 +153,12 @@ class _UsersScreenState extends State<UsersScreen>
           isLoadingRooms = false;
         });
       }
+      _perf.stopTimer(
+        'UsersScreen._loadRooms',
+        details: 'Success, rooms=${loadedRooms.length}',
+      );
     } catch (e) {
+      _perf.stopTimer('UsersScreen._loadRooms', details: 'ERROR: $e');
       if (mounted) {
         setState(() {
           isLoadingRooms = false;

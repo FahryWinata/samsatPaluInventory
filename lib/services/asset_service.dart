@@ -4,10 +4,12 @@ import 'supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'activity_service.dart';
 import 'storage_service.dart';
+import 'cache_service.dart';
 
 class AssetService {
   final activityService = ActivityService();
   SupabaseClient get supabase => SupabaseService.client;
+  final _cache = CacheService();
 
   // Create new asset
   // Create new asset
@@ -22,6 +24,10 @@ class AssetService {
       final id = response['id'] as int;
 
       await _logCreateActivity(id, asset);
+
+      // Invalidate cache after creation
+      _invalidateAssetCaches();
+
       return id;
     } on PostgrestException catch (e) {
       // 23505: duplicate key value violates unique constraint
@@ -56,6 +62,10 @@ class AssetService {
     final id = response['id'] as int;
 
     await _logCreateActivity(id, asset);
+
+    // Invalidate cache after creation
+    _invalidateAssetCaches();
+
     return id;
   }
 
@@ -69,12 +79,57 @@ class AssetService {
     );
   }
 
-  // Get all assets
+  /// Helper to invalidate all asset-related caches
+  void _invalidateAssetCaches() {
+    _cache.invalidate(CacheKeys.allAssets);
+    _cache.invalidate(CacheKeys.assetStatistics);
+    _cache.invalidate(CacheKeys.maintenanceStats);
+  }
+
+  // Get all assets (with caching - 2 minute TTL)
   Future<List<Asset>> getAllAssets() async {
-    final List<dynamic> response = await supabase
-        .from('assets')
-        .select()
-        .order('updated_at', ascending: false);
+    return _cache.getOrFetch(
+      CacheKeys.allAssets,
+      () async {
+        final List<dynamic> response = await supabase
+            .from('assets')
+            .select()
+            .order('updated_at', ascending: false);
+        return response.map((json) => Asset.fromMap(json)).toList();
+      },
+      ttlSeconds: CacheService.mediumTTL, // 2 minutes
+    );
+  }
+
+  // Get assets paginated
+  Future<List<Asset>> getAssetsPaginated({
+    int page = 1,
+    int limit = 20,
+    String? status,
+    String? searchQuery,
+  }) async {
+    var query = supabase.from('assets').select();
+
+    if (status != null && status.isNotEmpty && status != 'all') {
+      // Handle the 'Available' (CamelCase) vs 'available' (lowercase) if needed
+      // But typically we enforce lowercase in DB.
+      query = query.eq('status', status.toLowerCase());
+    }
+
+    if (searchQuery != null && searchQuery.isNotEmpty) {
+      // Build OR query for name and identifier
+      query = query.or(
+        'name.ilike.%$searchQuery%,identifier_value.ilike.%$searchQuery%',
+      );
+    }
+
+    // Apply sorting and pagination at the end
+    final from = (page - 1) * limit;
+    final to = from + limit - 1;
+
+    final List<dynamic> response = await query
+        .order('updated_at', ascending: false)
+        .range(from, to);
     return response.map((json) => Asset.fromMap(json)).toList();
   }
 
@@ -109,6 +164,10 @@ class AssetService {
 
     // Explicitly update updated_at if not handled by trigger (but app sets it usually)
     await supabase.from('assets').update(data).eq('id', asset.id as Object);
+
+    // Invalidate cache after update
+    _invalidateAssetCaches();
+
     return asset.id!;
   }
 
@@ -249,28 +308,30 @@ class AssetService {
     return id;
   }
 
-  // Statistics
+  // Statistics (with caching - 2 minute TTL)
   Future<Map<String, int>> getAssetStatistics() async {
-    final available = await supabase
-        .from('assets')
-        .count(CountOption.exact)
-        .eq('status', 'available');
+    return _cache.getOrFetch(CacheKeys.assetStatistics, () async {
+      final available = await supabase
+          .from('assets')
+          .count(CountOption.exact)
+          .eq('status', 'available');
 
-    final assigned = await supabase
-        .from('assets')
-        .count(CountOption.exact)
-        .eq('status', 'assigned');
+      final assigned = await supabase
+          .from('assets')
+          .count(CountOption.exact)
+          .eq('status', 'assigned');
 
-    final maintenance = await supabase
-        .from('assets')
-        .count(CountOption.exact)
-        .eq('status', 'maintenance');
+      final maintenance = await supabase
+          .from('assets')
+          .count(CountOption.exact)
+          .eq('status', 'maintenance');
 
-    return {
-      'available': available,
-      'assigned': assigned,
-      'maintenance': maintenance,
-    };
+      return {
+        'available': available,
+        'assigned': assigned,
+        'maintenance': maintenance,
+      };
+    }, ttlSeconds: CacheService.mediumTTL);
   }
 
   // Get transfer history for an asset

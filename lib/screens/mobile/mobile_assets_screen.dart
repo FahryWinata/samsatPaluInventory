@@ -1,9 +1,10 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../services/asset_service.dart';
 import '../../services/user_service.dart';
 import '../../models/asset_model.dart';
 import '../../widgets/asset_form_dialog.dart';
+import '../../utils/performance_logger.dart';
+import 'paginated_asset_list_view.dart';
 
 class MobileAssetsScreen extends StatefulWidget {
   const MobileAssetsScreen({super.key});
@@ -17,11 +18,21 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
   final assetService = AssetService();
   final userService = UserService();
   final TextEditingController _searchController = TextEditingController();
+  final _perf = PerformanceLogger();
 
-  List<Asset> _allAssets = [];
+  Map<int, String> _userNames = {}; // Cache user names
   bool _isLoading = true;
   late TabController _tabController;
-  Map<int, String> _userNames = {}; // Cache user names
+
+  // Keys to refresh lists
+  final GlobalKey<PaginatedAssetListViewState> _availableKey = GlobalKey();
+  final GlobalKey<PaginatedAssetListViewState> _assignedKey = GlobalKey();
+  final GlobalKey<PaginatedAssetListViewState> _maintenanceKey = GlobalKey();
+
+  // Counts for tabs
+  int _availableCount = 0;
+  int _assignedCount = 0;
+  int _maintenanceCount = 0;
 
   @override
   void initState() {
@@ -38,25 +49,49 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    _perf.startTimer('MobileAssetsScreen._loadData');
+
     try {
-      final assets = await assetService.getAllAssets();
-      final users = await userService
-          .getAllUsers(); // Fetch users to map IDs to Names
+      _perf.startTimer('MobileAssetsScreen.getAssetStatistics');
+      final stats = await assetService.getAssetStatistics();
+      _perf.stopTimer(
+        'MobileAssetsScreen.getAssetStatistics',
+        details:
+            'available=${stats['available']}, assigned=${stats['assigned']}',
+      );
+
+      _perf.startTimer('MobileAssetsScreen.getAllUsers');
+      final users = await userService.getAllUsers();
+      _perf.stopTimer(
+        'MobileAssetsScreen.getAllUsers',
+        details: 'users=${users.length}',
+      );
 
       if (mounted) {
         setState(() {
-          _allAssets = assets;
-          _userNames = {for (var u in users) u.id!: u.name}; // Create Map
+          _availableCount = stats['available'] ?? 0;
+          _assignedCount = stats['assigned'] ?? 0;
+          _maintenanceCount = stats['maintenance'] ?? 0;
+
+          _userNames = {for (var u in users) u.id!: u.name};
           _isLoading = false;
         });
       }
+      _perf.stopTimer('MobileAssetsScreen._loadData', details: 'Success');
     } catch (e) {
-      debugPrint("Error loading assets: $e");
+      _perf.stopTimer('MobileAssetsScreen._loadData', details: 'ERROR: $e');
+      debugPrint("Error loading data: $e");
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _refreshAll() {
+    _loadData(); // Refresh counts
+    _availableKey.currentState?.refresh();
+    _assignedKey.currentState?.refresh();
+    _maintenanceKey.currentState?.refresh();
   }
 
   Future<void> _showAddDialog() async {
@@ -75,8 +110,8 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
               backgroundColor: Colors.green,
             ),
           );
+          _refreshAll();
         }
-        _loadData();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -86,6 +121,8 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
       }
     }
   }
+
+  // ... (Edit/Move/Delete handlers kept same, but calling _refreshAll)
 
   Future<void> _showEditDialog(Asset asset) async {
     final result = await showDialog<Asset>(
@@ -103,8 +140,8 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
               backgroundColor: Colors.green,
             ),
           );
+          _refreshAll();
         }
-        _loadData();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -231,8 +268,8 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
               backgroundColor: Colors.green,
             ),
           );
+          _refreshAll();
         }
-        _loadData();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -311,8 +348,8 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
               backgroundColor: Colors.green,
             ),
           );
+          _refreshAll();
         }
-        _loadData();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -325,25 +362,6 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
       }
     }
   }
-
-  List<Asset> _getFilteredAssets(String status) {
-    return _allAssets.where((asset) {
-      if (asset.status.toLowerCase() != status.toLowerCase()) return false;
-      final query = _searchController.text.toLowerCase();
-      if (query.isNotEmpty) {
-        return asset.name.toLowerCase().contains(query) ||
-            (asset.identifierValue ?? '').toLowerCase().contains(query);
-      }
-      return true;
-    }).toList();
-  }
-
-  int get _availableCount =>
-      _allAssets.where((a) => a.status.toLowerCase() == 'available').length;
-  int get _assignedCount =>
-      _allAssets.where((a) => a.status.toLowerCase() == 'assigned').length;
-  int get _maintenanceCount =>
-      _allAssets.where((a) => a.status.toLowerCase() == 'maintenance').length;
 
   @override
   Widget build(BuildContext context) {
@@ -385,9 +403,27 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
           : TabBarView(
               controller: _tabController,
               children: [
-                _buildAssetList('available'),
-                _buildAssetList('assigned'),
-                _buildAssetList('maintenance'),
+                PaginatedAssetListView(
+                  key: _availableKey,
+                  status: 'available',
+                  assetService: assetService,
+                  onAssetTap: _showAssetOptions,
+                  userNames: _userNames,
+                ),
+                PaginatedAssetListView(
+                  key: _assignedKey,
+                  status: 'assigned',
+                  assetService: assetService,
+                  onAssetTap: _showAssetOptions,
+                  userNames: _userNames,
+                ),
+                PaginatedAssetListView(
+                  key: _maintenanceKey,
+                  status: 'maintenance',
+                  assetService: assetService,
+                  onAssetTap: _showAssetOptions,
+                  userNames: _userNames,
+                ),
               ],
             ),
       floatingActionButton: FloatingActionButton(
@@ -396,131 +432,5 @@ class _MobileAssetsScreenState extends State<MobileAssetsScreen>
         child: const Icon(Icons.add, color: Colors.white),
       ),
     );
-  }
-
-  Widget _buildAssetList(String status) {
-    final assets = _getFilteredAssets(status);
-
-    if (assets.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.inbox_outlined, size: 60, color: Colors.grey[300]),
-            const SizedBox(height: 16),
-            Text(
-              'No $status assets found',
-              style: TextStyle(color: Colors.grey[500]),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: assets.length,
-      itemBuilder: (context, index) {
-        return _buildAssetCard(assets[index]);
-      },
-    );
-  }
-
-  Widget _buildAssetCard(Asset asset) {
-    // Determine the subtitle text
-    String subtitleText;
-    if (asset.status == 'assigned' && asset.currentHolderId != null) {
-      final holderName = _userNames[asset.currentHolderId] ?? 'Unknown User';
-      subtitleText = 'Holder: $holderName';
-    } else if (asset.status == 'maintenance') {
-      subtitleText = 'Loc: ${asset.maintenanceLocation ?? 'N/A'}';
-    } else {
-      subtitleText = (asset.identifierValue?.isNotEmpty ?? false)
-          ? 'S/N: ${asset.identifierValue}'
-          : 'Available';
-    }
-
-    return GestureDetector(
-      onTap: () => _showAssetOptions(asset),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha(5),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-                image: asset.imagePath != null
-                    ? DecorationImage(
-                        image: asset.imagePath!.startsWith('http')
-                            ? NetworkImage(asset.imagePath!)
-                            : FileImage(File(asset.imagePath!))
-                                  as ImageProvider,
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-              ),
-              child: asset.imagePath == null ? _getIconForAsset(asset) : null,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    asset.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  Text(
-                    subtitleText,
-                    style: const TextStyle(color: Colors.grey, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.more_vert, color: Colors.grey),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _getIconForAsset(Asset asset) {
-    final name = asset.name.toLowerCase();
-    if (name.contains('macbook') || name.contains('laptop')) {
-      return const Icon(Icons.laptop, color: Colors.grey);
-    }
-    if (name.contains('iphone') ||
-        name.contains('ipad') ||
-        name.contains('tablet')) {
-      return const Icon(Icons.tablet_mac, color: Colors.grey);
-    }
-    if (name.contains('keyboard')) {
-      return const Icon(Icons.keyboard, color: Colors.grey);
-    }
-    if (name.contains('mouse')) {
-      return const Icon(Icons.mouse, color: Colors.grey);
-    }
-    if (name.contains('monitor') || name.contains('display')) {
-      return const Icon(Icons.monitor, color: Colors.grey);
-    }
-    return const Icon(Icons.devices_other, color: Colors.grey);
   }
 }

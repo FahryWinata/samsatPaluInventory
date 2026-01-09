@@ -8,6 +8,7 @@ import '../widgets/skeleton_loader.dart';
 import '../widgets/error_widget.dart';
 import '../utils/extensions.dart';
 import '../utils/snackbar_helper.dart';
+import '../utils/performance_logger.dart';
 
 class InventoryScreen extends StatefulWidget {
   final String initialFilter;
@@ -21,26 +22,28 @@ class InventoryScreen extends StatefulWidget {
 class _InventoryScreenState extends State<InventoryScreen> {
   final inventoryService = InventoryService();
   final TextEditingController _searchController = TextEditingController();
+  final _perf = PerformanceLogger();
 
   List<InventoryItem> items = [];
   List<InventoryItem> filteredItems = [];
   bool isLoading = true;
+  bool hasError = false;
+  String errorMessage = '';
+
+  // Pagination & Filtering State
+  int _currentPage = 1;
+  final int _itemsPerPage = 10;
   String searchQuery = '';
+  String filterStatus = 'all'; // 'all', 'good', 'low', 'out'
 
-  late String filterStatus;
-
-  // Stats
+  // New State for Server-Side Pagination
+  bool isUsingServerSide = true;
+  int totalMatchingItems = 0;
+  // Stats counters
   int totalItems = 0;
   int goodStockCount = 0;
   int lowStockCount = 0;
   int outOfStockCount = 0;
-
-  // Pagination Configuration
-  int _currentPage = 1;
-  final int _itemsPerPage = 8;
-
-  bool hasError = false;
-  String errorMessage = '';
 
   @override
   void initState() {
@@ -56,53 +59,171 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Future<void> _loadItems() async {
-    setState(() {
-      isLoading = true;
-      hasError = false;
-    });
+    _perf.startTimer('InventoryScreen._loadItems');
 
+    // OPTIMIZATION: Run stats and first page fetch in parallel
+    _perf.startTimer('InventoryScreen.parallelLoad');
     try {
-      final loadedItems = await inventoryService.getAllItems();
+      final results = await Future.wait([
+        inventoryService.getInventoryStats(),
+        _fetchPageData(1), // Helper that returns data without setState
+      ]);
+      _perf.stopTimer(
+        'InventoryScreen.parallelLoad',
+        details: 'Both calls complete',
+      );
 
-      // Calculate Stats
-      int good = 0;
-      int low = 0;
-      int out = 0;
+      final stats = results[0] as Map<String, int>;
+      final pageResult =
+          results[1] as ({List<InventoryItem> items, int count})?;
 
-      for (var item in loadedItems) {
-        if (item.quantity == 0) {
-          out++;
-        } else if (item.quantity <= item.minimumStock) {
-          low++;
-        } else {
-          good++;
-        }
+      if (mounted) {
+        setState(() {
+          totalItems = stats['total'] ?? 0;
+          outOfStockCount = stats['out'] ?? 0;
+          lowStockCount = stats['low'] ?? 0;
+          goodStockCount = stats['good'] ?? 0;
+
+          if (pageResult != null) {
+            items = pageResult.items;
+            filteredItems = pageResult.items;
+            totalMatchingItems = pageResult.count;
+            _currentPage = 1;
+          }
+          isLoading = false;
+        });
       }
-
-      setState(() {
-        items = loadedItems;
-        totalItems = items.length;
-        goodStockCount = good;
-        lowStockCount = low;
-        outOfStockCount = out;
-
-        _applyFilters();
-        isLoading = false;
-      });
     } catch (e) {
+      _perf.stopTimer('InventoryScreen.parallelLoad', details: 'ERROR: $e');
+      debugPrint("Error loading: $e");
       if (mounted) {
         setState(() {
           isLoading = false;
           hasError = true;
-          errorMessage = context.t('failed_load_inventory');
+          errorMessage = e.toString();
+        });
+      }
+    }
+
+    _perf.stopTimer('InventoryScreen._loadItems');
+  }
+
+  // Helper method that returns data without calling setState
+  Future<({List<InventoryItem> items, int count})?> _fetchPageData(
+    int page,
+  ) async {
+    bool simpleFilters = (filterStatus == 'all' || filterStatus == 'out');
+
+    if (simpleFilters) {
+      return await inventoryService.getItemsPaginated(
+        page: page,
+        limit: _itemsPerPage,
+        searchQuery: searchQuery,
+        filterStatus: filterStatus == 'all' ? null : filterStatus,
+      );
+    } else {
+      // Fallback to client-side for complex filters
+      final allItems = await inventoryService.getAllItems();
+      final filtered = allItems.where((item) {
+        final matchesSearch =
+            searchQuery.isEmpty ||
+            item.name.toLowerCase().contains(searchQuery.toLowerCase());
+        bool matchesStatus = true;
+        if (filterStatus == 'good') {
+          matchesStatus = item.quantity > item.minimumStock;
+        } else if (filterStatus == 'low') {
+          matchesStatus =
+              item.quantity > 0 && item.quantity <= item.minimumStock;
+        }
+        return matchesSearch && matchesStatus;
+      }).toList();
+
+      final startIdx = (page - 1) * _itemsPerPage;
+      final endIdx = startIdx + _itemsPerPage;
+      final pageItems = filtered.sublist(
+        startIdx,
+        endIdx > filtered.length ? filtered.length : endIdx,
+      );
+      return (items: pageItems, count: filtered.length);
+    }
+  }
+
+  Future<void> _fetchPage(int page) async {
+    final timerName =
+        'InventoryScreen._fetchPage(page=$page, filter=$filterStatus)';
+    _perf.startTimer(timerName);
+
+    setState(() {
+      isLoading = true;
+      hasError = false;
+      _currentPage = page;
+    });
+
+    try {
+      // Decision: Server or Client side?
+      // Use server side if filter is 'all' or 'out' AND we can efficiently paginate.
+      // If 'good' or 'low', we might need client side for now unless we added RPC.
+      // For this implementation, let's use server side for 'all' and 'out'.
+      bool simpleFilters = (filterStatus == 'all' || filterStatus == 'out');
+
+      if (simpleFilters) {
+        isUsingServerSide = true;
+        _perf.logStep(timerName, 'Starting server-side fetch');
+        final result = await inventoryService.getItemsPaginated(
+          page: page,
+          limit: _itemsPerPage,
+          searchQuery: searchQuery,
+          filterStatus: filterStatus == 'all' ? null : filterStatus,
+        );
+        _perf.logStep(
+          timerName,
+          'Server fetch complete, items=${result.items.length}',
+        );
+
+        if (mounted) {
+          setState(() {
+            items = result.items; // Contains only current page
+            filteredItems = result.items;
+            totalMatchingItems = result.count;
+            isLoading = false;
+          });
+        }
+      } else {
+        // Fallback to client-side for complex filters ('good', 'low')
+        isUsingServerSide = false;
+        _perf.logStep(timerName, 'Starting client-side fetch (getAllItems)');
+        // Fetch ALL items to filter locally
+        final allItems = await inventoryService.getAllItems();
+        _perf.logStep(
+          timerName,
+          'Client fetch complete, items=${allItems.length}',
+        );
+        if (mounted) {
+          setState(() {
+            items = allItems;
+            _applyClientSideFilters(); // Will update filteredItems and totalMatchingItems
+            isLoading = false;
+          });
+        }
+      }
+      _perf.stopTimer(
+        timerName,
+        details: 'Success, items=${filteredItems.length}',
+      );
+    } catch (e) {
+      _perf.stopTimer(timerName, details: 'ERROR: $e');
+      if (mounted) {
+        setState(() {
+          hasError = true;
+          errorMessage = e.toString().replaceAll("Exception: ", "");
+          isLoading = false;
         });
       }
     }
   }
 
-  void _applyFilters() {
-    _currentPage = 1;
-
+  void _applyClientSideFilters() {
+    // Only used when isUsingServerSide == false
     filteredItems = items.where((item) {
       final matchesSearch =
           searchQuery.isEmpty ||
@@ -123,13 +244,24 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
       return matchesSearch && matchesStatus;
     }).toList();
+
+    totalMatchingItems = filteredItems.length;
   }
 
   void _onFilterTap(String status) {
-    setState(() {
-      filterStatus = status;
-      _applyFilters();
-    });
+    if (filterStatus != status) {
+      setState(() {
+        filterStatus = status;
+        _currentPage = 1;
+      });
+      _fetchPage(1);
+    }
+  }
+
+  // This replace _applyFilters used in search listener
+  void _onSearchChanged() {
+    // Debounce or just trigger fetch
+    _fetchPage(1);
   }
 
   // --- CRUD Actions ---
@@ -305,7 +437,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.grey.withValues(alpha: 0.05),
+                            color: Colors.grey.withOpacity(0.05),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           ),
@@ -455,13 +587,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
           boxShadow: [
             if (isSelected)
               BoxShadow(
-                color: color.withValues(alpha: 0.4),
+                color: color.withOpacity(0.4),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               )
             else
               BoxShadow(
-                color: Colors.grey.withValues(alpha: 0.05),
+                color: Colors.grey.withOpacity(0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -526,8 +658,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         _searchController.clear();
                         setState(() {
                           searchQuery = '';
-                          _applyFilters();
                         });
+                        _onSearchChanged();
                       },
                     )
                   : null,
@@ -547,8 +679,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
             onChanged: (val) {
               setState(() {
                 searchQuery = val;
-                _applyFilters();
               });
+              _onSearchChanged();
             },
           ),
         ),
@@ -571,9 +703,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Widget _buildPaginationControls() {
-    final int totalPages = (filteredItems.isEmpty)
+    final int totalPages = (totalMatchingItems == 0)
         ? 1
-        : (filteredItems.length / _itemsPerPage).ceil();
+        : (totalMatchingItems / _itemsPerPage).ceil();
 
     return Container(
       padding: const EdgeInsets.all(16.0),
@@ -585,7 +717,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         children: [
           OutlinedButton(
             onPressed: _currentPage > 1
-                ? () => setState(() => _currentPage--)
+                ? () => _fetchPage(_currentPage - 1)
                 : null,
             child: Text(context.t('previous')),
           ),
@@ -597,7 +729,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           const SizedBox(width: 16),
           OutlinedButton(
             onPressed: _currentPage < totalPages
-                ? () => setState(() => _currentPage++)
+                ? () => _fetchPage(_currentPage + 1)
                 : null,
             child: Text(context.t('next')),
           ),
@@ -606,15 +738,19 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
+  // --- Helper Methods ---
   List<InventoryItem> _getCurrentPageItems() {
-    final startIndex = (_currentPage - 1) * _itemsPerPage;
-    if (startIndex >= filteredItems.length) return [];
-
-    final endIndex = (startIndex + _itemsPerPage < filteredItems.length)
-        ? startIndex + _itemsPerPage
-        : filteredItems.length;
-
-    return filteredItems.sublist(startIndex, endIndex);
+    if (isUsingServerSide) {
+      return filteredItems; // Already paginated
+    } else {
+      final startIndex = (_currentPage - 1) * _itemsPerPage;
+      final endIndex = startIndex + _itemsPerPage;
+      if (startIndex >= filteredItems.length) return [];
+      return filteredItems.sublist(
+        startIndex,
+        endIndex > filteredItems.length ? filteredItems.length : endIndex,
+      );
+    }
   }
 
   Widget _buildDesktopTable() {

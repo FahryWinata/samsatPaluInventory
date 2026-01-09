@@ -4,10 +4,18 @@ import '../models/inventory_history_model.dart';
 import 'supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'activity_service.dart';
+import 'cache_service.dart';
 
 class InventoryService {
   final activityService = ActivityService();
   SupabaseClient get supabase => SupabaseService.client;
+  final _cache = CacheService();
+
+  /// Helper to invalidate inventory caches
+  void _invalidateInventoryCaches() {
+    _cache.invalidate(CacheKeys.allInventoryItems);
+    _cache.invalidate(CacheKeys.inventoryStats);
+  }
 
   Future<int> createItem(InventoryItem item) async {
     debugPrint('=== InventoryService.createItem START ===');
@@ -48,6 +56,9 @@ class InventoryService {
         details: 'Initial stock: ${item.quantity} ${item.unit}',
       );
 
+      // Invalidate cache after creation
+      _invalidateInventoryCaches();
+
       debugPrint('=== InventoryService.createItem SUCCESS, id=$id ===');
       return id;
     } catch (e, stackTrace) {
@@ -59,12 +70,105 @@ class InventoryService {
     }
   }
 
+  // Get all items (with caching - 30 second TTL since inventory changes frequently)
   Future<List<InventoryItem>> getAllItems() async {
-    final List<dynamic> response = await supabase
-        .from('inventory')
-        .select()
-        .order('name');
-    return response.map((json) => InventoryItem.fromMap(json)).toList();
+    return _cache.getOrFetch(
+      CacheKeys.allInventoryItems,
+      () async {
+        final List<dynamic> response = await supabase
+            .from('inventory')
+            .select()
+            .order('name');
+        return response.map((json) => InventoryItem.fromMap(json)).toList();
+      },
+      ttlSeconds: CacheService.shortTTL, // 30 seconds
+    );
+  }
+
+  // Paginated Items with Count
+  Future<({List<InventoryItem> items, int count})> getItemsPaginated({
+    int page = 1,
+    int limit = 10,
+    String? searchQuery,
+    String? filterStatus, // 'good', 'low', 'out'
+  }) async {
+    // We need a separate query for count because Supabase doesn't return count with select(*) easily in one go
+    // without `count: exact` which wraps response.
+    // However, `select()` with `count(CountOption.exact)` returns a `PostgrestResponse` which contains `count` and `data`.
+
+    // Let's use the modifiers to build the base filter first.
+    // BUT Supabase Flutter v2 chain is strict.
+    // We'll use a helper to apply filters to both the data query and the count query?
+    // Or just use `select('*, count(*)')` is not standard Postgrest.
+
+    // Better approach: Use `count()` method on a fresh query builder for count, and standard select for data.
+
+    // Helper to apply filters
+    PostgrestFilterBuilder applyFilters(PostgrestFilterBuilder q) {
+      if (searchQuery != null && searchQuery.isNotEmpty) {
+        q = q.or('name.ilike.%$searchQuery%,description.ilike.%$searchQuery%');
+      }
+      if (filterStatus == 'out') {
+        q = q.eq('quantity', 0);
+      }
+      return q;
+    }
+
+    // 1. Get Count
+    // count(CountOption.exact) returns PostgrestFilterBuilder<int>
+    var countBuilder = supabase.from('inventory').count(CountOption.exact);
+    final countRes = await applyFilters(countBuilder);
+    final totalCount = countRes as int;
+
+    // 2. Get Data
+    var dataBuilder = supabase.from('inventory').select();
+    var dataQuery = applyFilters(dataBuilder);
+
+    final from = (page - 1) * limit;
+    final to = from + limit - 1;
+
+    final List<dynamic> response = await dataQuery
+        .order('name', ascending: true)
+        .range(from, to);
+
+    final items = response.map((json) => InventoryItem.fromMap(json)).toList();
+
+    return (items: items, count: totalCount);
+  }
+
+  // Get inventory stats (with caching - 30 second TTL)
+  Future<Map<String, int>> getInventoryStats() async {
+    return _cache.getOrFetch(CacheKeys.inventoryStats, () async {
+      // 1. Total Rows
+      final total = await supabase.from('inventory').count(CountOption.exact);
+
+      // 2. Out of Stock
+      final out = await supabase
+          .from('inventory')
+          .count(CountOption.exact)
+          .eq('quantity', 0);
+
+      // 3. For Low/Good, we fetch minimal data (id, quantity, minimum_stock)
+      final List<dynamic> minimalData = await supabase
+          .from('inventory')
+          .select('quantity, minimum_stock');
+
+      int low = 0;
+      int good = 0;
+      for (var item in minimalData) {
+        final q = item['quantity'] as int;
+        final m = item['minimum_stock'] as int;
+        if (q > 0) {
+          if (q <= m) {
+            low++;
+          } else {
+            good++;
+          }
+        }
+      }
+
+      return {'total': total, 'out': out, 'low': low, 'good': good};
+    }, ttlSeconds: CacheService.shortTTL);
   }
 
   Future<InventoryItem?> getItemById(int id) async {

@@ -10,9 +10,12 @@ import '../services/user_service.dart';
 import '../services/activity_service.dart';
 import '../models/inventory_model.dart';
 import '../models/activity_model.dart';
+import '../models/asset_model.dart';
+import '../models/user_model.dart';
 import '../utils/extensions.dart';
 import '../widgets/skeleton_loader.dart';
 import '../widgets/error_widget.dart';
+import '../utils/performance_logger.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -26,6 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final assetService = AssetService();
   final userService = UserService();
   final activityService = ActivityService();
+  final _perf = PerformanceLogger();
 
   // Statistics Data
   int totalInventoryItems = 0;
@@ -60,17 +64,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _loadData() async {
+    _perf.startTimer('DashboardScreen._loadData');
+
     setState(() {
       isLoading = true;
       hasError = false;
     });
 
     try {
-      final items = await inventoryService.getAllItems();
-      final assetsList = await assetService.getAllAssets();
-      final users = await userService.getAllUsers();
-      final assetStats = await assetService.getAssetStatistics();
-      final activities = await activityService.getRecentActivities(limit: 20);
+      // OPTIMIZATION: Run ALL 6 API calls in parallel (including maintenance stats)
+      _perf.startTimer('DashboardScreen.parallelFetch');
+      final results = await Future.wait([
+        inventoryService.getAllItems(),
+        assetService.getAllAssets(),
+        userService.getAllUsers(),
+        assetService.getAssetStatistics(),
+        activityService.getRecentActivities(limit: 20),
+        assetService.getMaintenanceStats(), // Added to parallel fetch
+      ]);
+      _perf.stopTimer(
+        'DashboardScreen.parallelFetch',
+        details: 'All 6 calls complete',
+      );
+
+      final items = results[0] as List<InventoryItem>;
+      final assetsList = results[1] as List<Asset>;
+      final users = results[2] as List<User>;
+      final assetStats = results[3] as Map<String, int>;
+      final activities = results[4] as List<ActivityLog>;
+      final maintenanceStats = results[5] as Map<String, int>;
 
       // Calculate 3-State Inventory Health
       int good = 0;
@@ -105,19 +127,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           assignedAssets = assetStats['assigned'] ?? 0;
           maintenanceAssets = assetStats['maintenance'] ?? 0;
           recentActivities = activities;
+
+          // Maintenance stats from parallel fetch
+          overdueMaintenanceCount = maintenanceStats['overdue'] ?? 0;
+          upcomingMaintenanceCount = maintenanceStats['upcoming'] ?? 0;
+
           isLoading = false;
         });
       }
-
-      // Load maintenance stats separately (don't block main load)
-      final maintenanceStats = await assetService.getMaintenanceStats();
-      if (mounted) {
-        setState(() {
-          overdueMaintenanceCount = maintenanceStats['overdue'] ?? 0;
-          upcomingMaintenanceCount = maintenanceStats['upcoming'] ?? 0;
-        });
-      }
+      _perf.stopTimer('DashboardScreen._loadData', details: 'Success');
     } catch (e) {
+      _perf.stopTimer('DashboardScreen._loadData', details: 'ERROR: $e');
       if (mounted) {
         setState(() {
           isLoading = false;

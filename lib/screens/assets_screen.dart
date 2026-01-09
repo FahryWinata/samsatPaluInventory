@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import '../models/asset_model.dart';
 import '../models/user_model.dart';
+import '../models/asset_category_model.dart';
+import '../models/room_model.dart';
 import '../services/asset_service.dart';
 import '../services/category_service.dart';
 import '../services/room_service.dart';
@@ -14,6 +16,7 @@ import '../widgets/skeleton_loader.dart';
 import '../widgets/error_widget.dart';
 import '../utils/extensions.dart';
 import '../utils/snackbar_helper.dart';
+import '../utils/performance_logger.dart';
 
 class AssetsScreen extends StatefulWidget {
   const AssetsScreen({super.key});
@@ -27,6 +30,7 @@ class _AssetsScreenState extends State<AssetsScreen> {
   final userService = UserService();
   final categoryService = CategoryService();
   final roomService = RoomService();
+  final _perf = PerformanceLogger();
 
   // Master list of all assets (loaded once)
   List<Asset> _allAssets = [];
@@ -67,34 +71,48 @@ class _AssetsScreenState extends State<AssetsScreen> {
   }
 
   Future<void> _loadAssets() async {
+    _perf.startTimer('AssetsScreen._loadAssets');
+
     setState(() {
       isLoading = true;
       hasError = false;
     });
 
     try {
-      // 1. Fetch all data once
-      final allAssets = await assetService.getAllAssets();
-      final users = await userService.getAllUsers();
-      final categories = await categoryService.getAllCategories();
-      final rooms = await roomService.getAllRooms();
+      // OPTIMIZATION: Run all 4 API calls in parallel
+      _perf.startTimer('AssetsScreen.parallelFetch');
+      final results = await Future.wait([
+        assetService.getAllAssets(),
+        userService.getAllUsers(),
+        categoryService.getAllCategories(),
+        roomService.getAllRooms(),
+      ]);
+      _perf.stopTimer(
+        'AssetsScreen.parallelFetch',
+        details: 'All 4 calls complete',
+      );
+
+      final allAssets = results[0] as List<Asset>;
+      final users = results[1] as List<User>;
+      final categories = results[2] as List<AssetCategory>;
+      final rooms = results[3] as List<Room>;
 
       // 2. Create holder names map
       final namesMap = <int, String>{};
       for (var user in users) {
-        namesMap[user.id!] = user.name;
+        if (user.id != null) namesMap[user.id!] = user.name;
       }
 
       // 3. Create category icons map
       final iconsMap = <int, IconData>{};
       for (var cat in categories) {
-        iconsMap[cat.id!] = cat.icon;
+        if (cat.id != null) iconsMap[cat.id!] = cat.icon;
       }
 
       // 4. Create room names map
       final roomNamesMap = <int, String>{};
       for (var room in rooms) {
-        roomNamesMap[room.id!] = room.name;
+        if (room.id != null) roomNamesMap[room.id!] = room.name;
       }
 
       if (mounted) {
@@ -104,15 +122,24 @@ class _AssetsScreenState extends State<AssetsScreen> {
           _categoryIcons = iconsMap;
           _roomNames = roomNamesMap;
           _categories = categories
+              .where((c) => c.id != null)
               .map((c) => (id: c.id!, name: c.name))
               .toList();
-          _rooms = rooms.map((r) => (id: r.id!, name: r.name)).toList();
+          _rooms = rooms
+              .where((r) => r.id != null)
+              .map((r) => (id: r.id!, name: r.name))
+              .toList();
           _applyFilters(); // Filter locally
           isLoading = false;
           hasError = false;
         });
       }
+      _perf.stopTimer(
+        'AssetsScreen._loadAssets',
+        details: 'Success, total=${allAssets.length}',
+      );
     } catch (e) {
+      _perf.stopTimer('AssetsScreen._loadAssets', details: 'ERROR: $e');
       debugPrint('Error loading assets: $e');
       if (mounted) {
         setState(() {

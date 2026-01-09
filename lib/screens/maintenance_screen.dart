@@ -8,6 +8,7 @@ import '../utils/extensions.dart';
 import '../widgets/skeleton_loader.dart';
 import '../widgets/error_widget.dart';
 import '../widgets/asset_detail_dialog.dart';
+import '../utils/performance_logger.dart';
 
 class MaintenanceScreen extends StatefulWidget {
   const MaintenanceScreen({super.key});
@@ -18,6 +19,7 @@ class MaintenanceScreen extends StatefulWidget {
 
 class _MaintenanceScreenState extends State<MaintenanceScreen> {
   final assetService = AssetService();
+  final _perf = PerformanceLogger();
 
   // Master list
   List<Asset> _allAssets = [];
@@ -50,6 +52,8 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
   }
 
   Future<void> _loadData() async {
+    _perf.startTimer('MaintenanceScreen._loadData');
+
     setState(() {
       isLoading = true;
       hasError = false;
@@ -57,7 +61,12 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
 
     try {
       // Fetch only assets that require maintenance
+      _perf.startTimer('MaintenanceScreen.getMaintenanceDueAssets');
       final assets = await assetService.getMaintenanceDueAssets();
+      _perf.stopTimer(
+        'MaintenanceScreen.getMaintenanceDueAssets',
+        details: 'assets=${assets.length}',
+      );
 
       if (mounted) {
         setState(() {
@@ -66,7 +75,9 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
           isLoading = false;
         });
       }
+      _perf.stopTimer('MaintenanceScreen._loadData', details: 'Success');
     } catch (e) {
+      _perf.stopTimer('MaintenanceScreen._loadData', details: 'ERROR: $e');
       if (mounted) {
         setState(() {
           isLoading = false;

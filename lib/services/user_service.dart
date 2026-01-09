@@ -2,9 +2,11 @@ import '../models/user_model.dart';
 import 'supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'activity_service.dart';
+import 'cache_service.dart';
 
 class UserService {
   SupabaseClient get supabase => SupabaseService.client;
+  final _cache = CacheService();
 
   // Create a new user
   Future<int> createUser(User user) async {
@@ -14,17 +16,26 @@ class UserService {
         .insert(data)
         .select()
         .single();
+
+    // Invalidate cache after creation
+    _cache.invalidate(CacheKeys.allUsers);
+
     return response['id'] as int;
   }
 
-  // Get all users
+  // Get all users (with caching - 5 minute TTL)
   Future<List<User>> getAllUsers() async {
-    // Order by name just to be nice
-    final List<dynamic> response = await supabase
-        .from('users')
-        .select()
-        .order('name');
-    return response.map((json) => User.fromMap(json)).toList();
+    return _cache.getOrFetch(
+      CacheKeys.allUsers,
+      () async {
+        final List<dynamic> response = await supabase
+            .from('users')
+            .select()
+            .order('name');
+        return response.map((json) => User.fromMap(json)).toList();
+      },
+      ttlSeconds: CacheService.longTTL, // 5 minutes
+    );
   }
 
   // Get user by ID
@@ -46,7 +57,11 @@ class UserService {
     await supabase
         .from('users')
         .update(user.toMap())
-        .eq('id', user.id as Object); // Cast Object to satisfy lint if needed
+        .eq('id', user.id as Object);
+
+    // Invalidate cache after update
+    _cache.invalidate(CacheKeys.allUsers);
+
     return user.id!;
   }
 
@@ -72,6 +87,10 @@ class UserService {
 
     // Delete the user
     await supabase.from('users').delete().eq('id', id);
+
+    // Invalidate caches
+    _cache.invalidate(CacheKeys.allUsers);
+    _cache.invalidate(CacheKeys.allAssets); // Assets were modified too
 
     // Log activity
     final activityService = ActivityService();

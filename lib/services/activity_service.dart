@@ -1,10 +1,12 @@
 import '../models/activity_model.dart';
 import 'supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'cache_service.dart';
 
 class ActivityService {
   // Helper to access client
   SupabaseClient get supabase => SupabaseService.client;
+  final _cache = CacheService();
 
   // Log a new activity
   Future<int> logActivity({
@@ -34,18 +36,23 @@ class ActivityService {
         .select()
         .single();
 
+    // Invalidate cache after new activity
+    _cache.invalidate(CacheKeys.recentActivities);
+
     return response['id'] as int;
   }
 
-  // Get recent activities
+  // Get recent activities (with caching - 30 second TTL)
   Future<List<ActivityLog>> getRecentActivities({int limit = 10}) async {
-    final List<dynamic> response = await supabase
-        .from('activities')
-        .select()
-        .order('timestamp', ascending: false)
-        .limit(limit);
+    return _cache.getOrFetch('${CacheKeys.recentActivities}_$limit', () async {
+      final List<dynamic> response = await supabase
+          .from('activities')
+          .select()
+          .order('timestamp', ascending: false)
+          .limit(limit);
 
-    return response.map((json) => ActivityLog.fromMap(json)).toList();
+      return response.map((json) => ActivityLog.fromMap(json)).toList();
+    }, ttlSeconds: CacheService.shortTTL);
   }
 
   // Clear all logs (Optional utility)
@@ -54,5 +61,6 @@ class ActivityService {
     // We use a condition that is always true (id > 0) to delete potentially everything.
     // Use with caution.
     await supabase.from('activities').delete().gt('id', 0);
+    _cache.invalidate(CacheKeys.recentActivities);
   }
 }

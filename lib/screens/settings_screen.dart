@@ -18,6 +18,7 @@ import '../utils/extensions.dart';
 import '../utils/snackbar_helper.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/category_management_dialog.dart';
+import '../utils/performance_logger.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -377,6 +378,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showPerformanceReport() {
+    final perf = PerformanceLogger();
+    final logs = perf.logs;
+
+    // Also print to console
+    perf.printReport();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.speed, color: Colors.orange),
+            SizedBox(width: 12),
+            Text('Performance Report'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: logs.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No performance logs recorded yet.\n\nNavigate through the app to collect metrics.',
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: logs.length,
+                  itemBuilder: (context, index) {
+                    final log = logs[logs.length - 1 - index]; // Newest first
+                    final durationMs = log.duration.inMilliseconds;
+                    final color = durationMs < 500
+                        ? Colors.green
+                        : (durationMs < 2000 ? Colors.orange : Colors.red);
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: color.withOpacity(0.2),
+                          child: Text(
+                            '${durationMs}ms',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: color,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          log.operationName,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (log.details != null)
+                              Text(
+                                log.details!,
+                                style: const TextStyle(fontSize: 10),
+                              ),
+                            Text(
+                              'Started: ${log.startTime.hour}:${log.startTime.minute.toString().padLeft(2, '0')}:${log.startTime.second.toString().padLeft(2, '0')}',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        isThreeLine: log.details != null,
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              perf.clearLogs();
+              Navigator.of(dialogContext).pop();
+              SnackBarHelper.showSuccess(context, 'Logs cleared');
+            },
+            child: const Text('Clear Logs'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final localeService = Provider.of<LocaleService>(context);
@@ -551,6 +650,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     SnackBarHelper.showInfo(
                       context,
                       context.t('terms_of_service_coming_soon'),
+                    );
+                  },
+                ),
+              ],
+            ),
+
+            // Developer Tools
+            SettingsSection(
+              title: 'Developer Tools',
+              children: [
+                SettingsTile(
+                  icon: Icons.speed,
+                  title: 'Performance Report',
+                  subtitle: 'View loading time metrics',
+                  iconColor: Colors.orange,
+                  onTap: _showPerformanceReport,
+                ),
+                const Divider(height: 1),
+                SettingsTile(
+                  icon: Icons.delete_sweep,
+                  title: 'Clear Performance Logs',
+                  subtitle: 'Reset all collected metrics',
+                  iconColor: Colors.grey,
+                  onTap: () {
+                    PerformanceLogger().clearLogs();
+                    SnackBarHelper.showSuccess(
+                      context,
+                      'Performance logs cleared',
                     );
                   },
                 ),

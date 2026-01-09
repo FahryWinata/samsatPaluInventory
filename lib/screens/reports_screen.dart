@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/category_service.dart';
 import '../services/room_service.dart';
 import '../services/inventory_history_report_service.dart';
+import '../utils/performance_logger.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -34,6 +35,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   final categoryService = CategoryService();
   final roomService = RoomService();
   final inventoryHistoryReportService = InventoryHistoryReportService();
+  final _perf = PerformanceLogger();
 
   bool isLoading = true;
   List<InventoryItem> inventoryItems = [];
@@ -67,34 +69,54 @@ class _ReportsScreenState extends State<ReportsScreen>
   }
 
   Future<void> _loadData() async {
+    _perf.startTimer('ReportsScreen._loadData');
     setState(() => isLoading = true);
+
     try {
-      final items = await inventoryService.getAllItems();
-      final assetList = await assetService.getAllAssets();
-      final stats = await assetService.getAssetStatistics();
-      final lowStock = await inventoryService.getLowStockItems();
-      final activities = await activityService.getRecentActivities(limit: 20);
-      final transfers = await assetService.getAllTransfers();
-      final users = await userService.getAllUsers();
-      final categories = await categoryService.getAllCategories();
-      final rooms = await roomService.getAllRooms();
+      // OPTIMIZATION: Run ALL 9 API calls in parallel
+      _perf.startTimer('ReportsScreen.parallelFetch');
+      final results = await Future.wait([
+        inventoryService.getAllItems(), // 0
+        assetService.getAllAssets(), // 1
+        assetService.getAssetStatistics(), // 2
+        inventoryService.getLowStockItems(), // 3
+        activityService.getRecentActivities(limit: 20), // 4
+        assetService.getAllTransfers(), // 5
+        userService.getAllUsers(), // 6
+        categoryService.getAllCategories(), // 7
+        roomService.getAllRooms(), // 8
+      ]);
+      _perf.stopTimer(
+        'ReportsScreen.parallelFetch',
+        details: 'All 9 calls complete',
+      );
+
+      final items = results[0] as List<InventoryItem>;
+      final assetList = results[1] as List<Asset>;
+      final stats = results[2] as Map<String, int>;
+      final lowStock = results[3] as List<InventoryItem>;
+      final activities = results[4] as List<ActivityLog>;
+      final transfers = results[5] as List<Map<String, dynamic>>;
+      final users = results[6] as List<dynamic>;
+      final categories = results[7] as List<dynamic>;
+      final rooms = results[8] as List<dynamic>;
 
       // Create holder map
       final namesMap = <int, String>{};
       for (var user in users) {
-        namesMap[user.id!] = user.name;
+        if (user.id != null) namesMap[user.id!] = user.name;
       }
 
       // Create category map
       final catMap = <int, String>{};
       for (var cat in categories) {
-        catMap[cat.id!] = cat.name;
+        if (cat.id != null) catMap[cat.id!] = cat.name;
       }
 
       // Create room map
       final roomMap = <int, String>{};
       for (var room in rooms) {
-        roomMap[room.id!] = room.displayName;
+        if (room.id != null) roomMap[room.id!] = room.displayName;
       }
 
       if (mounted) {
@@ -119,7 +141,9 @@ class _ReportsScreenState extends State<ReportsScreen>
           isLoading = false;
         });
       }
+      _perf.stopTimer('ReportsScreen._loadData', details: 'Success');
     } catch (e) {
+      _perf.stopTimer('ReportsScreen._loadData', details: 'ERROR: $e');
       debugPrint("Error loading report data: $e");
       if (mounted) {
         setState(() => isLoading = false);
