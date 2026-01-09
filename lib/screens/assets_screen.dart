@@ -4,6 +4,8 @@ import '../utils/app_colors.dart';
 import '../models/asset_model.dart';
 import '../models/user_model.dart';
 import '../services/asset_service.dart';
+import '../services/category_service.dart';
+import '../services/room_service.dart';
 import '../services/user_service.dart';
 import '../widgets/asset_card.dart';
 import '../widgets/asset_detail_dialog.dart';
@@ -23,6 +25,8 @@ class AssetsScreen extends StatefulWidget {
 class _AssetsScreenState extends State<AssetsScreen> {
   final assetService = AssetService();
   final userService = UserService();
+  final categoryService = CategoryService();
+  final roomService = RoomService();
 
   // Master list of all assets (loaded once)
   List<Asset> _allAssets = [];
@@ -33,6 +37,7 @@ class _AssetsScreenState extends State<AssetsScreen> {
   List<Asset> maintenanceAssets = [];
 
   Map<int, String> holderNames = {};
+  Map<int, IconData> _categoryIcons = {};
 
   bool isLoading = true;
   bool hasError = false;
@@ -40,6 +45,11 @@ class _AssetsScreenState extends State<AssetsScreen> {
 
   // Search Handling
   String searchQuery = '';
+  int? _selectedCategoryId;
+  int? _selectedRoomId;
+  List<({int id, String name})> _categories = [];
+  List<({int id, String name})> _rooms = [];
+  Map<int, String> _roomNames = {};
   Timer? _debounce;
   final TextEditingController _searchController = TextEditingController();
 
@@ -66,6 +76,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
       // 1. Fetch all data once
       final allAssets = await assetService.getAllAssets();
       final users = await userService.getAllUsers();
+      final categories = await categoryService.getAllCategories();
+      final rooms = await roomService.getAllRooms();
 
       // 2. Create holder names map
       final namesMap = <int, String>{};
@@ -73,10 +85,28 @@ class _AssetsScreenState extends State<AssetsScreen> {
         namesMap[user.id!] = user.name;
       }
 
+      // 3. Create category icons map
+      final iconsMap = <int, IconData>{};
+      for (var cat in categories) {
+        iconsMap[cat.id!] = cat.icon;
+      }
+
+      // 4. Create room names map
+      final roomNamesMap = <int, String>{};
+      for (var room in rooms) {
+        roomNamesMap[room.id!] = room.name;
+      }
+
       if (mounted) {
         setState(() {
           _allAssets = allAssets; // Store master list
           holderNames = namesMap;
+          _categoryIcons = iconsMap;
+          _roomNames = roomNamesMap;
+          _categories = categories
+              .map((c) => (id: c.id!, name: c.name))
+              .toList();
+          _rooms = rooms.map((r) => (id: r.id!, name: r.name)).toList();
           _applyFilters(); // Filter locally
           isLoading = false;
           hasError = false;
@@ -112,6 +142,18 @@ class _AssetsScreenState extends State<AssetsScreen> {
         if (!matchesName && !matchesSerial) {
           continue; // Skip this asset if it doesn't match
         }
+      }
+
+      // Category Filter
+      if (_selectedCategoryId != null &&
+          asset.categoryId != _selectedCategoryId) {
+        continue;
+      }
+
+      // Room Filter
+      if (_selectedRoomId != null &&
+          asset.assignedToRoomId != _selectedRoomId) {
+        continue;
       }
 
       // Sort into Columns
@@ -270,63 +312,128 @@ class _AssetsScreenState extends State<AssetsScreen> {
 
     return showDialog<User>(
       context: context,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Container(
-            width: 300, // Small and centered
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  context.t('select_holder'),
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 16),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 300),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: users.length,
-                    itemBuilder: (context, index) {
-                      final user = users[index];
-                      return ListTile(
-                        leading: CircleAvatar(
-                          radius: 16,
-                          child: Text(
-                            user.name[0],
-                            style: const TextStyle(fontSize: 12),
-                          ),
+      builder: (dialogContext) {
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (context, setState) {
+            final filteredUsers = users
+                .where(
+                  (u) =>
+                      u.name.toLowerCase().contains(
+                        searchQuery.toLowerCase(),
+                      ) ||
+                      (u.department?.toLowerCase().contains(
+                            searchQuery.toLowerCase(),
+                          ) ??
+                          false),
+                )
+                .toList();
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Container(
+                width: 350,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      context.t('select_holder'),
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 16),
+                    // Search Bar
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: context.t('search_users'),
+                        prefixIcon: const Icon(Icons.search),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
                         ),
-                        title: Text(
-                          user.name,
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                        subtitle: Text(
-                          user.department ?? '',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        onTap: () => Navigator.pop(context, user),
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
+                          horizontal: 12,
+                          vertical: 12,
                         ),
-                        dense: true,
-                      );
-                    },
-                  ),
+                        isDense: true,
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          searchQuery = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (filteredUsers.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Text(
+                          searchQuery.isEmpty
+                              ? context.t(
+                                  'no_users_found',
+                                ) // Or generic 'No users'
+                              : context.t('no_users_found'),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    else
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 300),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: filteredUsers.length,
+                          itemBuilder: (context, index) {
+                            final user = filteredUsers[index];
+                            return ListTile(
+                              leading: CircleAvatar(
+                                radius: 16,
+                                backgroundColor: AppColors.primary,
+                                child: Text(
+                                  user.name.isNotEmpty
+                                      ? user.name[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              title: Text(
+                                user.name,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                              subtitle: Text(
+                                user.department ?? '-',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              onTap: () => Navigator.pop(dialogContext, user),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              dense: true,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              hoverColor: Colors.grey.shade100,
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, null),
+                      child: Text(context.t('cancel')),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () => Navigator.pop(context, null),
-                  child: Text(context.t('cancel')),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -414,7 +521,77 @@ class _AssetsScreenState extends State<AssetsScreen> {
                     onChanged: _onSearchChanged,
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
+
+                // Category Filter Dropdown
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int?>(
+                      value: _selectedCategoryId,
+                      hint: const Text('Semua Kategori'),
+                      icon: const Icon(Icons.filter_list),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('Semua Kategori'),
+                        ),
+                        ..._categories.map(
+                          (cat) => DropdownMenuItem<int?>(
+                            value: cat.id,
+                            child: Text(cat.name),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedCategoryId = value;
+                          _applyFilters();
+                        });
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Room Filter Dropdown
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int?>(
+                      value: _selectedRoomId,
+                      hint: const Text('Semua Ruangan'),
+                      icon: const Icon(Icons.room),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('Semua Ruangan'),
+                        ),
+                        ..._rooms.map(
+                          (room) => DropdownMenuItem<int?>(
+                            value: room.id,
+                            child: Text(room.name),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedRoomId = value;
+                          _applyFilters();
+                        });
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
                 ElevatedButton.icon(
                   onPressed: _showAddDialog,
                   icon: const Icon(Icons.add),
@@ -764,6 +941,13 @@ class _AssetsScreenState extends State<AssetsScreen> {
   }
 
   Widget _buildDraggableAssetCard(Asset asset) {
+    final categoryIcon = asset.categoryId != null
+        ? _categoryIcons[asset.categoryId]
+        : null;
+    final roomName = asset.assignedToRoomId != null
+        ? _roomNames[asset.assignedToRoomId]
+        : null;
+
     return LongPressDraggable<Asset>(
       delay: const Duration(milliseconds: 150), // Faster drag
       data: asset,
@@ -779,6 +963,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
               holderName: asset.currentHolderId != null
                   ? holderNames[asset.currentHolderId]
                   : null,
+              roomName: roomName,
+              categoryIcon: categoryIcon,
               onTap: () {},
             ),
           ),
@@ -791,6 +977,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
           holderName: asset.currentHolderId != null
               ? holderNames[asset.currentHolderId]
               : null,
+          roomName: roomName,
+          categoryIcon: categoryIcon,
           onTap: () {},
         ),
       ),
@@ -799,6 +987,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
         holderName: asset.currentHolderId != null
             ? holderNames[asset.currentHolderId]
             : null,
+        roomName: roomName,
+        categoryIcon: categoryIcon,
         onTap: () => _showDetailDialog(asset),
       ),
     );

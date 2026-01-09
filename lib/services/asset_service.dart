@@ -103,11 +103,12 @@ class AssetService {
 
   // Update asset (Generic)
   Future<int> updateAsset(Asset asset) async {
+    final data = asset.toMap();
+    data.remove('id'); // Never update the primary key
+    data.remove('created_at'); // Never update creation date
+
     // Explicitly update updated_at if not handled by trigger (but app sets it usually)
-    await supabase
-        .from('assets')
-        .update(asset.toMap())
-        .eq('id', asset.id as Object);
+    await supabase.from('assets').update(data).eq('id', asset.id as Object);
     return asset.id!;
   }
 
@@ -316,7 +317,7 @@ class AssetService {
         .from('asset_transfers')
         .select('''
           *,
-          assets(name, serial_number),
+          assets(name, identifier_value),
           u_from:users!from_user_id(name),
           u_to:users!to_user_id(name)
         ''')
@@ -329,7 +330,7 @@ class AssetService {
       return {
         ...map,
         'asset_name': asset?['name'],
-        'asset_serial': asset?['serial_number'],
+        'asset_serial': asset?['identifier_value'],
         'from_user_name': map['u_from']?['name'],
         'to_user_name': map['u_to']?['name'],
       };

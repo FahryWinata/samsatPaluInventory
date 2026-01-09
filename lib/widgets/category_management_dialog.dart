@@ -47,6 +47,7 @@ class _CategoryManagementDialogState extends State<CategoryManagementDialog> {
     String selectedIdentifierType = category?.identifierType ?? 'none';
     bool requiresPerson = category?.requiresPerson ?? true;
     bool requiresRoom = category?.requiresRoom ?? false;
+    String selectedIconName = category?.iconName ?? 'inventory_2';
 
     final result = await showDialog<bool>(
       context: context,
@@ -69,6 +70,66 @@ class _CategoryManagementDialogState extends State<CategoryManagementDialog> {
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // Icon Picker
+                Text(
+                  'Ikon Kategori',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: AssetCategory.iconMap.entries.map((entry) {
+                      final isSelected = entry.key == selectedIconName;
+                      return Tooltip(
+                        message:
+                            AssetCategory.iconDisplayNames[entry.key] ??
+                            entry.key,
+                        child: InkWell(
+                          onTap: () {
+                            setDialogState(() => selectedIconName = entry.key);
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.primary.withValues(alpha: 0.1)
+                                  : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : Colors.transparent,
+                                width: 2,
+                              ),
+                            ),
+                            child: Icon(
+                              entry.value,
+                              color: isSelected
+                                  ? AppColors.primary
+                                  : Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
                 Text(
                   'Jenis Identifier',
                   style: TextStyle(
@@ -166,6 +227,7 @@ class _CategoryManagementDialogState extends State<CategoryManagementDialog> {
                   identifierType: selectedIdentifierType,
                   requiresPerson: requiresPerson,
                   requiresRoom: requiresRoom,
+                  iconName: selectedIconName,
                 );
 
                 try {

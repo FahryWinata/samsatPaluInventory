@@ -31,6 +31,7 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
   final CategoryService _categoryService = CategoryService();
   final RoomService _roomService = RoomService();
   bool _isUploading = false;
+  bool _isLoadingData = true;
 
   // Category & Room state
   List<AssetCategory> _categories = [];
@@ -66,10 +67,23 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
         setState(() {
           _categories = categories;
           _rooms = rooms;
+          _isLoadingData = false;
+
+          // Validate selected IDs exist in fetched data
           if (_selectedCategoryId != null) {
             _selectedCategory = categories
                 .where((c) => c.id == _selectedCategoryId)
                 .firstOrNull;
+            if (_selectedCategory == null) {
+              _selectedCategoryId = null;
+            }
+          }
+
+          if (_selectedRoomId != null) {
+            final roomExists = rooms.any((r) => r.id == _selectedRoomId);
+            if (!roomExists) {
+              _selectedRoomId = null;
+            }
           }
         });
       }
@@ -199,263 +213,284 @@ class _AssetFormDialogState extends State<AssetFormDialog> {
         child: SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.laptop_mac,
-                          color: AppColors.primary,
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        isEditing ? 'Edit Asset' : 'Add New Asset',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Image Picker
-                  Center(
-                    child: GestureDetector(
-                      onTap: () => _showImageSourceActionSheet(context),
-                      child: Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                          image: _imagePath != null && !_isUploading
-                              ? DecorationImage(
-                                  image: _imagePath!.startsWith('http')
-                                      ? NetworkImage(_imagePath!)
-                                      : FileImage(File(_imagePath!))
-                                            as ImageProvider,
-                                  fit: BoxFit.cover,
-                                )
-                              : null,
-                        ),
-                        child: _imagePath == null && !_isUploading
-                            ? Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: const [
-                                  Icon(Icons.add_a_photo, color: Colors.grey),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    'Add Image',
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : _isUploading
-                            ? const Center(child: CircularProgressIndicator())
-                            : null,
-                      ),
-                    ),
-                  ),
-                  if (_imagePath != null)
-                    Center(
-                      child: TextButton(
-                        onPressed: () async {
-                          // Delete from Supabase if it's a remote URL
-                          if (_imagePath != null &&
-                              _imagePath!.startsWith('http')) {
-                            await _storageService.deleteImage(_imagePath);
-                          }
-                          setState(() => _imagePath = null);
-                        },
-                        child: const Text(
-                          'Remove Image',
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 24),
-
-                  // Name
-                  TextFormField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Asset Name *',
-                      hintText: 'e.g., MacBook Pro 2023',
-                      prefixIcon: Icon(Icons.devices),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter asset name';
-                      }
-                      return null;
-                    },
-                    textCapitalization: TextCapitalization.words,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Category Dropdown
-                  DropdownButtonFormField<int?>(
-                    initialValue: _selectedCategoryId,
-                    decoration: InputDecoration(
-                      labelText: 'Kategori',
-                      prefixIcon: const Icon(Icons.category),
-                      border: OutlineInputBorder(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
+                      child: const Icon(
+                        Icons.laptop_mac,
+                        color: AppColors.primary,
+                        size: 24,
+                      ),
                     ),
-                    hint: const Text('Pilih Kategori (Opsional)'),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                        value: null,
-                        child: Text('Tidak Ada Kategori'),
+                    const SizedBox(width: 12),
+                    Text(
+                      isEditing ? 'Edit Asset' : 'Add New Asset',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
-                      ..._categories.map(
-                        (cat) => DropdownMenuItem<int?>(
-                          value: cat.id,
-                          child: Text(cat.name),
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedCategoryId = value;
-                        _selectedCategory = value != null
-                            ? _categories
-                                  .where((c) => c.id == value)
-                                  .firstOrNull
-                            : null;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Identifier (optional, label changes based on category)
-                  TextFormField(
-                    controller: _serialController,
-                    decoration: InputDecoration(
-                      labelText:
-                          _selectedCategory?.identifierLabel ?? 'Identifier',
-                      hintText:
-                          _selectedCategory?.identifierType == 'vehicle_id'
-                          ? 'Contoh: DN 1234 AB'
-                          : 'Contoh: SN-12345',
-                      prefixIcon: const Icon(Icons.qr_code),
-                      helperText: 'Opsional',
                     ),
-                    textCapitalization:
-                        _selectedCategory?.identifierType == 'vehicle_id'
-                        ? TextCapitalization.characters
-                        : TextCapitalization.none,
-                  ),
-                  const SizedBox(height: 16),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
 
-                  // Room Assignment (shown if category supports room)
-                  if (_selectedCategory == null ||
-                      _selectedCategory!.requiresRoom) ...[
-                    DropdownButtonFormField<int?>(
-                      initialValue: _selectedRoomId,
-                      decoration: InputDecoration(
-                        labelText: 'Ruangan',
-                        prefixIcon: const Icon(Icons.meeting_room),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      hint: const Text('Pilih Ruangan (Opsional)'),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('Tidak Ada Ruangan'),
-                        ),
-                        ..._rooms.map(
-                          (room) => DropdownMenuItem<int?>(
-                            value: room.id,
-                            child: Text(room.displayName),
+                if (_isLoadingData)
+                  const SizedBox(
+                    height: 150,
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else
+                  Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Image Picker
+                        Center(
+                          child: GestureDetector(
+                            onTap: () => _showImageSourceActionSheet(context),
+                            child: Container(
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade300),
+                                image: _imagePath != null && !_isUploading
+                                    ? DecorationImage(
+                                        image: _imagePath!.startsWith('http')
+                                            ? NetworkImage(_imagePath!)
+                                            : FileImage(File(_imagePath!))
+                                                  as ImageProvider,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
+                              ),
+                              child: _imagePath == null && !_isUploading
+                                  ? Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: const [
+                                        Icon(
+                                          Icons.add_a_photo,
+                                          color: Colors.grey,
+                                        ),
+                                        SizedBox(height: 4),
+                                        Text(
+                                          'Add Image',
+                                          style: TextStyle(
+                                            color: Colors.grey,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : _isUploading
+                                  ? const Center(
+                                      child: CircularProgressIndicator(),
+                                    )
+                                  : null,
+                            ),
                           ),
                         ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _selectedRoomId = value),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+                        if (_imagePath != null)
+                          Center(
+                            child: TextButton(
+                              onPressed: () async {
+                                // Delete from Supabase if it's a remote URL
+                                if (_imagePath != null &&
+                                    _imagePath!.startsWith('http')) {
+                                  await _storageService.deleteImage(_imagePath);
+                                }
+                                setState(() => _imagePath = null);
+                              },
+                              child: const Text(
+                                'Remove Image',
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 24),
 
-                  // Description
-                  TextFormField(
-                    controller: _descriptionController,
-                    decoration: const InputDecoration(
-                      labelText: 'Description',
-                      hintText: 'Optional description',
-                      prefixIcon: Icon(Icons.description),
-                    ),
-                    maxLines: 3,
-                    textCapitalization: TextCapitalization.sentences,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Purchase Date
-                  InkWell(
-                    onTap: _selectDate,
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Purchase Date',
-                        prefixIcon: Icon(Icons.calendar_today),
-                      ),
-                      child: Text(
-                        _purchaseDate != null
-                            ? '${_purchaseDate!.day}/${_purchaseDate!.month}/${_purchaseDate!.year}'
-                            : 'Select date',
-                        style: TextStyle(
-                          color: _purchaseDate != null
-                              ? AppColors.textPrimary
-                              : Colors.grey.shade600,
+                        // Name
+                        TextFormField(
+                          controller: _nameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Asset Name *',
+                            hintText: 'e.g., MacBook Pro 2023',
+                            prefixIcon: Icon(Icons.devices),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter asset name';
+                            }
+                            return null;
+                          },
+                          textCapitalization: TextCapitalization.words,
                         ),
-                      ),
+                        const SizedBox(height: 16),
+
+                        // Category Dropdown
+                        DropdownButtonFormField<int?>(
+                          initialValue: _selectedCategoryId,
+                          decoration: InputDecoration(
+                            labelText: 'Kategori',
+                            prefixIcon: const Icon(Icons.category),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          hint: const Text('Pilih Kategori (Opsional)'),
+                          items: [
+                            const DropdownMenuItem<int?>(
+                              value: null,
+                              child: Text('Tidak Ada Kategori'),
+                            ),
+                            ..._categories.map(
+                              (cat) => DropdownMenuItem<int?>(
+                                value: cat.id,
+                                child: Text(cat.name),
+                              ),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedCategoryId = value;
+                              _selectedCategory = value != null
+                                  ? _categories
+                                        .where((c) => c.id == value)
+                                        .firstOrNull
+                                  : null;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Identifier (optional, label changes based on category)
+                        TextFormField(
+                          controller: _serialController,
+                          decoration: InputDecoration(
+                            labelText:
+                                _selectedCategory?.identifierLabel ??
+                                'Identifier',
+                            hintText:
+                                _selectedCategory?.identifierType ==
+                                    'vehicle_id'
+                                ? 'Contoh: DN 1234 AB'
+                                : 'Contoh: SN-12345',
+                            prefixIcon: const Icon(Icons.qr_code),
+                            helperText: 'Opsional',
+                          ),
+                          textCapitalization:
+                              _selectedCategory?.identifierType == 'vehicle_id'
+                              ? TextCapitalization.characters
+                              : TextCapitalization.none,
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Room Assignment (shown if category supports room)
+                        if (_selectedCategory == null ||
+                            _selectedCategory!.requiresRoom) ...[
+                          DropdownButtonFormField<int?>(
+                            initialValue: _selectedRoomId,
+                            decoration: InputDecoration(
+                              labelText: 'Ruangan',
+                              prefixIcon: const Icon(Icons.meeting_room),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            hint: const Text('Pilih Ruangan (Opsional)'),
+                            items: [
+                              const DropdownMenuItem<int?>(
+                                value: null,
+                                child: Text('Tidak Ada Ruangan'),
+                              ),
+                              ..._rooms.map(
+                                (room) => DropdownMenuItem<int?>(
+                                  value: room.id,
+                                  child: Text(room.displayName),
+                                ),
+                              ),
+                            ],
+                            onChanged: (value) =>
+                                setState(() => _selectedRoomId = value),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
+                        // Description
+                        TextFormField(
+                          controller: _descriptionController,
+                          decoration: const InputDecoration(
+                            labelText: 'Description',
+                            hintText: 'Optional description',
+                            prefixIcon: Icon(Icons.description),
+                          ),
+                          maxLines: 3,
+                          textCapitalization: TextCapitalization.sentences,
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Purchase Date
+                        InkWell(
+                          onTap: _selectDate,
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Purchase Date',
+                              prefixIcon: Icon(Icons.calendar_today),
+                            ),
+                            child: Text(
+                              _purchaseDate != null
+                                  ? '${_purchaseDate!.day}/${_purchaseDate!.month}/${_purchaseDate!.year}'
+                                  : 'Select date',
+                              style: TextStyle(
+                                color: _purchaseDate != null
+                                    ? AppColors.textPrimary
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Buttons
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: Text(context.t('cancel')),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
+                              onPressed: _submit,
+                              icon: Icon(isEditing ? Icons.save : Icons.add),
+                              label: Text(
+                                isEditing ? 'Save Changes' : 'Add Asset',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 24),
-
-                  // Buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: Text(context.t('cancel')),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        onPressed: _submit,
-                        icon: Icon(isEditing ? Icons.save : Icons.add),
-                        label: Text(isEditing ? 'Save Changes' : 'Add Asset'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+              ],
             ),
           ),
         ),

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/inventory_model.dart';
+import '../models/inventory_history_model.dart';
 import 'supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'activity_service.dart';
@@ -124,7 +125,7 @@ class InventoryService {
     return id;
   }
 
-  Future<int> increaseQuantity(int id, int amount) async {
+  Future<int> increaseQuantity(int id, int amount, {String? notes}) async {
     final item = await getItemById(id);
     if (item == null) return 0;
 
@@ -139,18 +140,29 @@ class InventoryService {
         })
         .eq('id', id);
 
+    // Log detailed history
+    await _logHistory(
+      inventoryId: id,
+      actionType: 'in',
+      quantityChange: amount,
+      previousQuantity: item.quantity,
+      newQuantity: newQuantity,
+      notes: notes,
+    );
+
     await activityService.logActivity(
       action: 'update',
       entityType: 'inventory',
       entityId: id,
       entityName: item.name,
-      details: 'Stock increased by $amount (New total: $newQuantity)',
+      details:
+          'Stock increased by $amount (New total: $newQuantity). Notes: $notes',
     );
 
     return id;
   }
 
-  Future<int> decreaseQuantity(int id, int amount) async {
+  Future<int> decreaseQuantity(int id, int amount, {String? notes}) async {
     final item = await getItemById(id);
     if (item == null) return 0;
 
@@ -167,12 +179,23 @@ class InventoryService {
         })
         .eq('id', id);
 
+    // Log detailed history
+    await _logHistory(
+      inventoryId: id,
+      actionType: 'out',
+      quantityChange: -amount,
+      previousQuantity: item.quantity,
+      newQuantity: newQuantity,
+      notes: notes,
+    );
+
     await activityService.logActivity(
       action: 'update',
       entityType: 'inventory',
       entityId: id,
       entityName: item.name,
-      details: 'Stock decreased by $amount (New total: $newQuantity)',
+      details:
+          'Stock decreased by $amount (New total: $newQuantity). Notes: $notes',
     );
 
     return id;
@@ -212,5 +235,50 @@ class InventoryService {
       0,
       (sum, item) => sum + (item['quantity'] as int),
     );
+  }
+
+  Future<void> _logHistory({
+    required int inventoryId,
+    required String actionType,
+    required int quantityChange,
+    required int previousQuantity,
+    required int newQuantity,
+    String? notes,
+  }) async {
+    try {
+      final history = InventoryHistory(
+        inventoryId: inventoryId,
+        actionType: actionType,
+        quantityChange: quantityChange,
+        previousQuantity: previousQuantity,
+        newQuantity: newQuantity,
+        notes: notes,
+        createdAt: DateTime.now(),
+        createdBy: 'Admin', // In real app, get from Auth Service
+      );
+
+      await supabase
+          .from('inventory_history')
+          .insert(history.toMap()..remove('id'));
+    } catch (e) {
+      debugPrint('Error logging inventory history: $e');
+      // Don't throw, just log error so UI doesn't crash on logging failure
+    }
+  }
+
+  Future<List<InventoryHistory>> getHistoryByMonth(int year, int month) async {
+    final startDate = DateTime(year, month, 1);
+    final endDate = DateTime(year, month + 1, 0, 23, 59, 59);
+
+    final List<dynamic> response = await supabase
+        .from('inventory_history')
+        .select(
+          '*, inventory:inventory_id(name)',
+        ) // Join with inventory to get name
+        .gte('created_at', startDate.toIso8601String())
+        .lte('created_at', endDate.toIso8601String())
+        .order('created_at', ascending: true);
+
+    return response.map((json) => InventoryHistory.fromMap(json)).toList();
   }
 }

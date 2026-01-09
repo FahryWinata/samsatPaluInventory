@@ -13,6 +13,9 @@ import '../models/activity_model.dart';
 import '../utils/extensions.dart';
 import '../utils/snackbar_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/category_service.dart';
+import '../services/room_service.dart';
+import '../services/inventory_history_report_service.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -28,6 +31,9 @@ class _ReportsScreenState extends State<ReportsScreen>
   final exportService = ExportService();
   final activityService = ActivityService();
   final userService = UserService();
+  final categoryService = CategoryService();
+  final roomService = RoomService();
+  final inventoryHistoryReportService = InventoryHistoryReportService();
 
   bool isLoading = true;
   List<InventoryItem> inventoryItems = [];
@@ -35,6 +41,8 @@ class _ReportsScreenState extends State<ReportsScreen>
   List<ActivityLog> recentActivities = [];
   List<Map<String, dynamic>> transferHistory = [];
   Map<int, String> holderNames = {};
+  Map<int, String> categoryNames = {};
+  Map<int, String> roomNames = {};
 
   // Stats for Charts
   int availableCount = 0;
@@ -68,11 +76,25 @@ class _ReportsScreenState extends State<ReportsScreen>
       final activities = await activityService.getRecentActivities(limit: 20);
       final transfers = await assetService.getAllTransfers();
       final users = await userService.getAllUsers();
+      final categories = await categoryService.getAllCategories();
+      final rooms = await roomService.getAllRooms();
 
       // Create holder map
       final namesMap = <int, String>{};
       for (var user in users) {
         namesMap[user.id!] = user.name;
+      }
+
+      // Create category map
+      final catMap = <int, String>{};
+      for (var cat in categories) {
+        catMap[cat.id!] = cat.name;
+      }
+
+      // Create room map
+      final roomMap = <int, String>{};
+      for (var room in rooms) {
+        roomMap[room.id!] = room.displayName;
       }
 
       if (mounted) {
@@ -82,6 +104,8 @@ class _ReportsScreenState extends State<ReportsScreen>
           recentActivities = activities;
           transferHistory = transfers;
           holderNames = namesMap;
+          categoryNames = catMap;
+          roomNames = roomMap;
 
           // Asset Stats
           availableCount = stats['available'] ?? 0;
@@ -267,7 +291,132 @@ class _ReportsScreenState extends State<ReportsScreen>
             color: AppColors.info,
             onTap: () => _showExportDialog(isInventory: false),
           ),
+          const SizedBox(height: 16),
+          _buildExportCard(
+            context,
+            title: 'Laporan Riwayat ATK',
+            subtitle: 'Laporan keluar masuk barang (bulanan)',
+            icon: Icons.history,
+            color: Colors.orange,
+            onTap: _showInventoryHistoryDialog,
+          ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showInventoryHistoryDialog() async {
+    int selectedMonth = DateTime.now().month;
+    int selectedYear = DateTime.now().year;
+    final years = List.generate(5, (index) => DateTime.now().year - index);
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (dialogContext, setState) => AlertDialog(
+          title: const Text('Pilih Periode Laporan'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: selectedMonth,
+                      decoration: const InputDecoration(
+                        labelText: 'Bulan',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: List.generate(
+                        12,
+                        (index) => DropdownMenuItem(
+                          value: index + 1,
+                          child: Text(
+                            DateFormat(
+                              'MMMM',
+                              'id_ID',
+                            ).format(DateTime(2024, index + 1)),
+                          ),
+                        ),
+                      ),
+                      onChanged: (val) => setState(() => selectedMonth = val!),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: selectedYear,
+                      decoration: const InputDecoration(
+                        labelText: 'Tahun',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: years
+                          .map(
+                            (y) => DropdownMenuItem(
+                              value: y,
+                              child: Text(y.toString()),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (val) => setState(() => selectedYear = val!),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(context.t('cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                // Capture references before async gap
+                final scaffoldMessenger = ScaffoldMessenger.of(context);
+                final loadingText = context.t('loading');
+                try {
+                  // Show loading
+                  scaffoldMessenger.showSnackBar(
+                    SnackBar(content: Text(loadingText)),
+                  );
+
+                  final history = await inventoryService.getHistoryByMonth(
+                    selectedYear,
+                    selectedMonth,
+                  );
+
+                  if (history.isEmpty) {
+                    scaffoldMessenger.showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Tidak ada data riwayat pada periode ini',
+                        ),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                    return;
+                  }
+
+                  await inventoryHistoryReportService.generateMonthlyReport(
+                    history: history,
+                    month: selectedMonth,
+                    year: selectedYear,
+                  );
+                } catch (e) {
+                  scaffoldMessenger.showSnackBar(
+                    SnackBar(
+                      content: Text('Gagal membuat laporan: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: const Text('Generate PDF'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -329,390 +478,445 @@ class _ReportsScreenState extends State<ReportsScreen>
           'KEPALA UNIT PELAKSANA TEKNIS\nPENDAPATAN DAERAH WILAYAH I PALU',
     );
 
+    // Initial state for third signer toggle
+    bool includeThirdSigner =
+        prefs.getBool('export_include_third_signer') ?? true;
+
     await showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(context.t('export_options')),
-        content: SizedBox(
-          width: 600,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: InputDecoration(
-                    labelText: context.t('report_title'),
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 20),
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogStateContext, setState) {
+            return AlertDialog(
+              title: Text(context.t('export_options')),
+              content: SizedBox(
+                width: 600,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: titleController,
+                        decoration: InputDecoration(
+                          labelText: context.t('report_title'),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
 
-                // Two column layout for first two signers
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Left column - Approver (Mengetahui)
-                    Expanded(
-                      child: Column(
+                      // Two column layout for first two signers
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Penandatangan 1 (Kiri)',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                          // Left column - Approver (Mengetahui)
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Penandatangan 1 (Kiri)',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: approverTitleController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Jabatan',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  maxLines: 2,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: approverNameController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Nama',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: approverRankController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Pangkat/Gol',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: approverNipController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'NIP',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: approverTitleController,
-                            decoration: const InputDecoration(
-                              labelText: 'Jabatan',
-                              border: OutlineInputBorder(),
-                              isDense: true,
+                          const SizedBox(width: 16),
+
+                          // Right column - Creator (Pembuat Laporan)
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Penandatangan 2 (Kanan)',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: creatorTitleController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Jabatan',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  maxLines: 2,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: creatorNameController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Nama',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: creatorRankController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Pangkat/Gol',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: creatorNipController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'NIP',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ],
                             ),
-                            maxLines: 2,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: approverNameController,
-                            decoration: const InputDecoration(
-                              labelText: 'Nama',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: approverRankController,
-                            decoration: const InputDecoration(
-                              labelText: 'Pangkat/Gol',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: approverNipController,
-                            decoration: const InputDecoration(
-                              labelText: 'NIP',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            style: const TextStyle(fontSize: 13),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 16),
 
-                    // Right column - Creator (Pembuat Laporan)
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Penandatangan 2 (Kanan)',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
+                      const SizedBox(height: 20),
+                      const Divider(),
+                      const SizedBox(height: 12),
+
+                      CheckboxListTile(
+                        title: const Text(
+                          'Include Penandatangan 3 (Tengah Bawah)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
                           ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: creatorTitleController,
-                            decoration: const InputDecoration(
-                              labelText: 'Jabatan',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            maxLines: 2,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: creatorNameController,
-                            decoration: const InputDecoration(
-                              labelText: 'Nama',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: creatorRankController,
-                            decoration: const InputDecoration(
-                              labelText: 'Pangkat/Gol',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: creatorNipController,
-                            decoration: const InputDecoration(
-                              labelText: 'NIP',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ],
+                        ),
+                        value: includeThirdSigner,
+                        onChanged: (val) {
+                          setState(() {
+                            includeThirdSigner = val ?? false;
+                          });
+                        },
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        dense: true,
                       ),
-                    ),
-                  ],
-                ),
 
-                const SizedBox(height: 20),
-                const Divider(),
-                const SizedBox(height: 12),
+                      if (includeThirdSigner) ...[
+                        const SizedBox(height: 8),
+                        // Jabatan field
+                        TextField(
+                          controller: thirdSignerTitleController,
+                          decoration: const InputDecoration(
+                            labelText: 'Jabatan',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          maxLines: 2,
+                          style: const TextStyle(fontSize: 13),
+                        ),
 
-                // Third signer - centered below
-                const Text(
-                  'Penandatangan 3 (Tengah Bawah)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                const SizedBox(height: 8),
-                // Jabatan field
-                TextField(
-                  controller: thirdSignerTitleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Jabatan',
-                    border: OutlineInputBorder(),
-                    isDense: true,
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: thirdSignerNameController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Nama',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: thirdSignerRankController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Pangkat/Gol',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: TextField(
+                                controller: thirdSignerNipController,
+                                decoration: const InputDecoration(
+                                  labelText: 'NIP',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
-                  maxLines: 2,
-                  style: const TextStyle(fontSize: 13),
                 ),
+              ),
 
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: thirdSignerNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Nama',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                  ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(context.t('cancel')),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: thirdSignerRankController,
-                        decoration: const InputDecoration(
-                          labelText: 'Pangkat/Gol',
-                          border: OutlineInputBorder(),
-                          isDense: true,
+                // Reset button to clear saved settings
+                TextButton.icon(
+                  onPressed: () async {
+                    // Clear all saved export settings
+                    await prefs.remove('export_approver_title');
+                    await prefs.remove('export_approver_name');
+                    await prefs.remove('export_approver_rank');
+                    await prefs.remove('export_approver_nip');
+                    await prefs.remove('export_creator_title');
+                    await prefs.remove('export_creator_name');
+                    await prefs.remove('export_creator_rank');
+                    await prefs.remove('export_creator_nip');
+                    await prefs.remove('export_third_signer_title');
+                    await prefs.remove('export_third_signer_name');
+                    await prefs.remove('export_third_signer_rank');
+                    await prefs.remove('export_third_signer_nip');
+                    await prefs.remove('export_include_third_signer');
+
+                    // Reset text controllers to default values
+                    approverTitleController.text = 'Pengurus Barang,';
+                    approverNameController.text = '';
+                    approverRankController.text = 'Pembina (IV/a)';
+                    approverNipController.text = '';
+
+                    creatorTitleController.text = 'Kepala Seksi Tata Usaha,';
+                    creatorNameController.text = '';
+                    creatorRankController.text = '';
+                    creatorNipController.text = '';
+
+                    thirdSignerTitleController.text =
+                        'KEPALA UNIT PELAKSANA TEKNIS\nPENDAPATAN DAERAH WILAYAH I PALU';
+                    thirdSignerNameController.text = '';
+                    thirdSignerRankController.text = '';
+                    thirdSignerNipController.text = '';
+
+                    setState(() {
+                      includeThirdSigner = true;
+                    });
+
+                    // Show confirmation
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Pengaturan export telah direset'),
+                          backgroundColor: Colors.green,
                         ),
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: TextField(
-                        controller: thirdSignerNipController,
-                        decoration: const InputDecoration(
-                          labelText: 'NIP',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                  ],
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Reset'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.pop(dialogContext);
+
+                    // Save values for next time
+                    await prefs.setString(
+                      isInventory
+                          ? 'export_title_inventory'
+                          : 'export_title_asset',
+                      titleController.text,
+                    );
+                    // Save approver values
+                    await prefs.setString(
+                      'export_approver_name',
+                      approverNameController.text,
+                    );
+                    await prefs.setString(
+                      'export_approver_rank',
+                      approverRankController.text,
+                    );
+                    await prefs.setString(
+                      'export_approver_nip',
+                      approverNipController.text,
+                    );
+                    await prefs.setString(
+                      'export_approver_title',
+                      approverTitleController.text,
+                    );
+                    // Save creator values
+                    await prefs.setString(
+                      'export_creator_name',
+                      creatorNameController.text,
+                    );
+                    await prefs.setString(
+                      'export_creator_rank',
+                      creatorRankController.text,
+                    );
+                    await prefs.setString(
+                      'export_creator_nip',
+                      creatorNipController.text,
+                    );
+                    await prefs.setString(
+                      'export_creator_title',
+                      creatorTitleController.text,
+                    );
+                    // Save third signer values
+                    await prefs.setString(
+                      'export_third_signer_name',
+                      thirdSignerNameController.text,
+                    );
+                    await prefs.setString(
+                      'export_third_signer_rank',
+                      thirdSignerRankController.text,
+                    );
+                    await prefs.setString(
+                      'export_third_signer_nip',
+                      thirdSignerNipController.text,
+                    );
+                    await prefs.setString(
+                      'export_third_signer_title',
+                      thirdSignerTitleController.text,
+                    );
+                    await prefs.setBool(
+                      'export_include_third_signer',
+                      includeThirdSigner,
+                    );
+
+                    try {
+                      if (isInventory) {
+                        await exportService.generateInventoryReport(
+                          inventoryItems,
+                          customTitle: titleController.text,
+                          approverName: approverNameController.text,
+                          approverRank: approverRankController.text,
+                          approverNip: approverNipController.text,
+                          approverTitle: approverTitleController.text,
+                          creatorName: creatorNameController.text,
+                          creatorRank: creatorRankController.text,
+                          creatorNip: creatorNipController.text,
+                          creatorTitle: creatorTitleController.text,
+                          thirdSignerName: includeThirdSigner
+                              ? thirdSignerNameController.text
+                              : null,
+                          thirdSignerRank: includeThirdSigner
+                              ? thirdSignerRankController.text
+                              : null,
+                          thirdSignerNip: includeThirdSigner
+                              ? thirdSignerNipController.text
+                              : null,
+                          thirdSignerTitle: includeThirdSigner
+                              ? thirdSignerTitleController.text
+                              : null,
+                        );
+                      } else {
+                        await exportService.generateAssetReport(
+                          assets,
+                          holderNames,
+                          categoryNames,
+                          roomNames,
+                          customTitle: titleController.text,
+                          approverName: approverNameController.text,
+                          approverRank: approverRankController.text,
+                          approverNip: approverNipController.text,
+                          approverTitle: approverTitleController.text,
+                          creatorName: creatorNameController.text,
+                          creatorRank: creatorRankController.text,
+                          creatorNip: creatorNipController.text,
+                          creatorTitle: creatorTitleController.text,
+                          thirdSignerName: includeThirdSigner
+                              ? thirdSignerNameController.text
+                              : null,
+                          thirdSignerRank: includeThirdSigner
+                              ? thirdSignerRankController.text
+                              : null,
+                          thirdSignerNip: includeThirdSigner
+                              ? thirdSignerNipController.text
+                              : null,
+                          thirdSignerTitle: includeThirdSigner
+                              ? thirdSignerTitleController.text
+                              : null,
+                        );
+                      }
+
+                      if (mounted) {
+                        SnackBarHelper.showSuccess(
+                          context,
+                          isInventory
+                              ? context.t('inventory_report_generated')
+                              : context.t('asset_report_generated'),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        SnackBarHelper.showError(
+                          context,
+                          '${context.t('failed_load_data')}: $e',
+                        );
+                      }
+                    }
+                  },
+                  child: Text(context.t('export')),
                 ),
               ],
-            ),
-          ),
-        ),
-
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(context.t('cancel')),
-          ),
-          // Reset button to clear saved settings
-          TextButton.icon(
-            onPressed: () async {
-              // Clear all saved export settings
-              await prefs.remove('export_approver_title');
-              await prefs.remove('export_approver_name');
-              await prefs.remove('export_approver_rank');
-              await prefs.remove('export_approver_nip');
-              await prefs.remove('export_creator_title');
-              await prefs.remove('export_creator_name');
-              await prefs.remove('export_creator_rank');
-              await prefs.remove('export_creator_nip');
-              await prefs.remove('export_third_signer_title');
-              await prefs.remove('export_third_signer_name');
-              await prefs.remove('export_third_signer_rank');
-              await prefs.remove('export_third_signer_nip');
-
-              // Reset text controllers to default values
-              approverTitleController.text = 'Pengurus Barang,';
-              approverNameController.text = '';
-              approverRankController.text = 'Pembina (IV/a)';
-              approverNipController.text = '';
-
-              creatorTitleController.text = 'Kepala Seksi Tata Usaha,';
-              creatorNameController.text = '';
-              creatorRankController.text = '';
-              creatorNipController.text = '';
-
-              thirdSignerTitleController.text =
-                  'KEPALA UNIT PELAKSANA TEKNIS\nPENDAPATAN DAERAH WILAYAH I PALU';
-              thirdSignerNameController.text = '';
-              thirdSignerRankController.text = '';
-              thirdSignerNipController.text = '';
-
-              // Show confirmation
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Pengaturan export telah direset'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
-            },
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('Reset'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-
-              // Save values for next time
-              await prefs.setString(
-                isInventory ? 'export_title_inventory' : 'export_title_asset',
-                titleController.text,
-              );
-              // Save approver values
-              await prefs.setString(
-                'export_approver_name',
-                approverNameController.text,
-              );
-              await prefs.setString(
-                'export_approver_rank',
-                approverRankController.text,
-              );
-              await prefs.setString(
-                'export_approver_nip',
-                approverNipController.text,
-              );
-              await prefs.setString(
-                'export_approver_title',
-                approverTitleController.text,
-              );
-              // Save creator values
-              await prefs.setString(
-                'export_creator_name',
-                creatorNameController.text,
-              );
-              await prefs.setString(
-                'export_creator_rank',
-                creatorRankController.text,
-              );
-              await prefs.setString(
-                'export_creator_nip',
-                creatorNipController.text,
-              );
-              await prefs.setString(
-                'export_creator_title',
-                creatorTitleController.text,
-              );
-              // Save third signer values
-              await prefs.setString(
-                'export_third_signer_name',
-                thirdSignerNameController.text,
-              );
-              await prefs.setString(
-                'export_third_signer_rank',
-                thirdSignerRankController.text,
-              );
-              await prefs.setString(
-                'export_third_signer_nip',
-                thirdSignerNipController.text,
-              );
-              await prefs.setString(
-                'export_third_signer_title',
-                thirdSignerTitleController.text,
-              );
-
-              try {
-                if (isInventory) {
-                  await exportService.generateInventoryReport(
-                    inventoryItems,
-                    customTitle: titleController.text,
-                    approverName: approverNameController.text,
-                    approverRank: approverRankController.text,
-                    approverNip: approverNipController.text,
-                    approverTitle: approverTitleController.text,
-                    creatorName: creatorNameController.text,
-                    creatorRank: creatorRankController.text,
-                    creatorNip: creatorNipController.text,
-                    creatorTitle: creatorTitleController.text,
-                    thirdSignerName: thirdSignerNameController.text,
-                    thirdSignerRank: thirdSignerRankController.text,
-                    thirdSignerNip: thirdSignerNipController.text,
-                    thirdSignerTitle: thirdSignerTitleController.text,
-                  );
-                } else {
-                  await exportService.generateAssetReport(
-                    assets,
-                    holderNames,
-                    customTitle: titleController.text,
-                    approverName: approverNameController.text,
-                    approverRank: approverRankController.text,
-                    approverNip: approverNipController.text,
-                    approverTitle: approverTitleController.text,
-                    creatorName: creatorNameController.text,
-                    creatorRank: creatorRankController.text,
-                    creatorNip: creatorNipController.text,
-                    creatorTitle: creatorTitleController.text,
-                    thirdSignerName: thirdSignerNameController.text,
-                    thirdSignerRank: thirdSignerRankController.text,
-                    thirdSignerNip: thirdSignerNipController.text,
-                    thirdSignerTitle: thirdSignerTitleController.text,
-                  );
-                }
-
-                if (mounted) {
-                  SnackBarHelper.showSuccess(
-                    context,
-                    isInventory
-                        ? context.t('inventory_report_generated')
-                        : context.t('asset_report_generated'),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  SnackBarHelper.showError(
-                    context,
-                    '${context.t('failed_load_data')}: $e',
-                  );
-                }
-              }
-            },
-            child: Text(context.t('export')),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 

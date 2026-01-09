@@ -1,4 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import '../utils/extensions.dart';
 import 'package:intl/intl.dart';
 import '../models/asset_model.dart';
@@ -9,10 +13,9 @@ import '../services/asset_service.dart';
 import '../services/user_service.dart';
 import '../services/category_service.dart';
 import '../services/room_service.dart';
+import '../services/transfer_report_service.dart';
 import '../utils/app_colors.dart';
-
 import '../utils/snackbar_helper.dart';
-import 'asset_form_dialog.dart';
 
 class AssetDetailDialog extends StatefulWidget {
   final Asset asset;
@@ -43,11 +46,32 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
   Room? assignedRoom;
   List<Map<String, dynamic>> transferHistory = [];
 
+  // Edit Mode State
+  bool _isEditMode = false;
+  final _nameController = TextEditingController();
+  final _descController = TextEditingController();
+  final _identifierController = TextEditingController();
+  int? _editCategoryId;
+  int? _editRoomId;
+  DateTime? _editPurchaseDate;
+  File? _pickedImage;
+  bool _removeImage = false;
+  List<AssetCategory> _allCategories = [];
+  List<Room> _allRooms = [];
+
   @override
   void initState() {
     super.initState();
     _asset = widget.asset;
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    _identifierController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -98,6 +122,307 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
         setState(() => isLoading = false);
       }
     }
+  }
+
+  /// Enter edit mode and populate controllers with current values
+  void _enterEditMode() async {
+    // Load all categories and rooms for dropdowns
+    final categories = await categoryService.getAllCategories();
+    final rooms = await roomService.getAllRooms();
+
+    setState(() {
+      _isEditMode = true;
+      _nameController.text = _asset.name;
+      _descController.text = _asset.description ?? '';
+      _identifierController.text = _asset.identifierValue ?? '';
+      _editCategoryId = _asset.categoryId;
+      _editRoomId = _asset.assignedToRoomId;
+      _editPurchaseDate = _asset.purchaseDate;
+      _editPurchaseDate = _asset.purchaseDate;
+      _pickedImage = null; // Reset picked image
+      _removeImage = false; // Reset remove flag
+      _allCategories = categories;
+      _allRooms = rooms;
+    });
+  }
+
+  /// Pick an image from gallery or camera
+  Future<void> _pickImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+
+    if (image != null) {
+      setState(() {
+        _pickedImage = File(image.path);
+        _removeImage = false; // Reset remove flag since we picked a new one
+      });
+    }
+  }
+
+  /// Save changes and exit edit mode
+  Future<void> _saveChanges() async {
+    try {
+      String? newImagePath = _asset.imagePath;
+
+      // Handle new image persistence
+      if (_pickedImage != null) {
+        final appDir = await getApplicationDocumentsDirectory();
+        final fileName =
+            '${DateTime.now().millisecondsSinceEpoch}_${path.basename(_pickedImage!.path)}';
+        final savedImage = await _pickedImage!.copy('${appDir.path}/$fileName');
+        newImagePath = savedImage.path;
+      }
+
+      final updatedAsset = _asset.copyWith(
+        name: _nameController.text.trim(),
+        identifierValue: _identifierController.text.trim().isEmpty
+            ? null
+            : _identifierController.text.trim(),
+        clearIdentifierValue: _identifierController.text.trim().isEmpty,
+        description: _descController.text.trim().isEmpty
+            ? null
+            : _descController.text.trim(),
+        clearDescription: _descController.text.trim().isEmpty,
+        categoryId: _editCategoryId,
+
+        assignedToRoomId: _editRoomId,
+        clearAssignedToRoomId: _editRoomId == null,
+        purchaseDate: _editPurchaseDate,
+        imagePath: newImagePath,
+        clearImagePath: _removeImage && _pickedImage == null,
+      );
+
+      await assetService.updateAsset(updatedAsset);
+      _asset = updatedAsset;
+      widget.onUpdate();
+
+      if (mounted) {
+        setState(() => _isEditMode = false);
+        _loadData(); // Refresh to get updated related data
+        SnackBarHelper.showSuccess(context, 'Asset updated successfully');
+      }
+    } catch (e) {
+      if (mounted) {
+        SnackBarHelper.showError(context, 'Failed to update: $e');
+      }
+    }
+  }
+
+  /// Cancel edit mode and discard changes
+  void _cancelEdit() {
+    setState(() => _isEditMode = false);
+  }
+
+  /// Show date picker for purchase date
+  Future<void> _selectPurchaseDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _editPurchaseDate ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() => _editPurchaseDate = picked);
+    }
+  }
+
+  /// Show dialog to input handover report details
+  void _showHandoverReportDialog(Map<String, dynamic> transferLog) {
+    final fromName = TextEditingController(
+      text: transferLog['from_user_name'] ?? '',
+    );
+    final fromNip = TextEditingController();
+    final fromPosition = TextEditingController();
+    final toName = TextEditingController(
+      text: transferLog['to_user_name'] ?? '',
+    );
+    final toNip = TextEditingController();
+    final toPosition = TextEditingController();
+    final approverName = TextEditingController();
+    final approverNip = TextEditingController();
+    final approverPosition = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        bool includeApprover = true;
+        return StatefulBuilder(
+          builder: (dialogStateContext, setState) {
+            return AlertDialog(
+              title: const Text('Generate Handover Report'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Party 1 (From)
+                    Text(
+                      'PIHAK PERTAMA (I) - Pemberi',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: fromName,
+                      decoration: const InputDecoration(
+                        labelText: 'Nama',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: fromNip,
+                      decoration: const InputDecoration(
+                        labelText: 'NIP',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: fromPosition,
+                      decoration: const InputDecoration(
+                        labelText: 'Jabatan',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Party 2 (To)
+                    Text(
+                      'PIHAK KEDUA (II) - Penerima',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: toName,
+                      decoration: const InputDecoration(
+                        labelText: 'Nama',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: toNip,
+                      decoration: const InputDecoration(
+                        labelText: 'NIP',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: toPosition,
+                      decoration: const InputDecoration(
+                        labelText: 'Jabatan',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Approver Toggle
+                    const Divider(),
+                    CheckboxListTile(
+                      title: Text(
+                        'Include MENGETAHUI / MENGESAHKAN',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primary,
+                          fontSize: 14,
+                        ),
+                      ),
+                      value: includeApprover,
+                      onChanged: (val) {
+                        setState(() {
+                          includeApprover = val ?? false;
+                        });
+                      },
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      dense: true,
+                    ),
+
+                    if (includeApprover) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: approverName,
+                        decoration: const InputDecoration(
+                          labelText: 'Nama',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: approverNip,
+                        decoration: const InputDecoration(
+                          labelText: 'NIP',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: approverPosition,
+                        decoration: const InputDecoration(
+                          labelText: 'Jabatan',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    final transferDate = DateTime.parse(
+                      transferLog['transfer_date'],
+                    );
+                    final reportService = TransferReportService();
+
+                    await reportService.generateHandoverReport(
+                      transferDate: transferDate,
+                      fromPerson: PersonInfo(
+                        name: fromName.text,
+                        nip: fromNip.text,
+                        position: fromPosition.text,
+                      ),
+                      toPerson: PersonInfo(
+                        name: toName.text,
+                        nip: toNip.text,
+                        position: toPosition.text,
+                      ),
+                      approver: includeApprover
+                          ? PersonInfo(
+                              name: approverName.text,
+                              nip: approverNip.text,
+                              position: approverPosition.text,
+                            )
+                          : null,
+                      asset: HandoverAssetInfo(
+                        name: _asset.name,
+                        serialNumber: _asset.identifierValue,
+                        brand: _asset.description,
+                        year: _asset.purchaseDate?.year.toString(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.picture_as_pdf),
+                  label: const Text('Generate PDF'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _showAssignDialog() async {
@@ -244,28 +569,6 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
     }
   }
 
-  Future<void> _showEditDialog() async {
-    final updatedAsset = await showDialog<Asset>(
-      context: context,
-      builder: (context) => AssetFormDialog(asset: _asset),
-    );
-
-    if (updatedAsset != null) {
-      try {
-        await assetService.updateAsset(updatedAsset);
-        widget.onUpdate();
-        _loadData();
-        if (mounted) {
-          SnackBarHelper.showSuccess(context, 'Asset updated successfully');
-        }
-      } catch (e) {
-        if (mounted) {
-          SnackBarHelper.showError(context, 'Failed to update asset: $e');
-        }
-      }
-    }
-  }
-
   Future<void> _deleteAsset() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -365,6 +668,29 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
     );
   }
 
+  /// Build an editable row for edit mode
+  Widget _buildEditRow(String label, Widget editWidget) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          Expanded(child: editWidget),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -388,43 +714,193 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
               ),
               child: Row(
                 children: [
+                  // Image Section
+                  GestureDetector(
+                    onTap: _isEditMode ? _pickImage : null,
+                    child: Stack(
+                      children: [
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            image: _pickedImage != null
+                                ? DecorationImage(
+                                    image: FileImage(_pickedImage!),
+                                    fit: BoxFit.cover,
+                                  )
+                                : (_asset.imagePath != null && !_removeImage)
+                                ? DecorationImage(
+                                    image: _asset.imagePath!.startsWith('http')
+                                        ? NetworkImage(_asset.imagePath!)
+                                        : FileImage(File(_asset.imagePath!))
+                                              as ImageProvider,
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                          ),
+                          child:
+                              (_pickedImage == null &&
+                                  (_asset.imagePath == null || _removeImage))
+                              ? const Icon(
+                                  Icons.inventory_2_outlined,
+                                  color: Colors.white,
+                                  size: 32,
+                                )
+                              : null,
+                        ),
+                        // Edit Overlay (Camera Icon)
+                        if (_isEditMode &&
+                            _pickedImage == null &&
+                            (_asset.imagePath == null || _removeImage))
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.4),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.camera_alt,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                          ),
+                        // Remove Image Button
+                        if (_isEditMode &&
+                            (_pickedImage != null ||
+                                (_asset.imagePath != null && !_removeImage)))
+                          Positioned(
+                            top: -8,
+                            right: -8,
+                            child: IconButton(
+                              icon: Container(
+                                padding: const EdgeInsets.all(2),
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.close,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _pickedImage = null;
+                                  _removeImage = true;
+                                });
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _asset.name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+                        if (_isEditMode)
+                          TextField(
+                            controller: _nameController,
+                            cursorColor: Colors.white,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            decoration: const InputDecoration(
+                              hintText: 'Asset Name',
+                              hintStyle: TextStyle(color: Colors.white54),
+                              border: UnderlineInputBorder(
+                                borderSide: BorderSide(color: Colors.white54),
+                              ),
+                              enabledBorder: UnderlineInputBorder(
+                                borderSide: BorderSide(color: Colors.white24),
+                              ),
+                              focusedBorder: UnderlineInputBorder(
+                                borderSide: BorderSide(color: Colors.white),
+                              ),
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(vertical: 8),
+                              filled: false,
+                            ),
+                          )
+                        else
+                          Text(
+                            _asset.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                        Text(
-                          _asset.identifierValue ?? '-',
-                          style: const TextStyle(color: Colors.white70),
-                        ),
+                        if (_isEditMode)
+                          TextField(
+                            controller: _identifierController,
+                            cursorColor: Colors.white70,
+                            style: const TextStyle(color: Colors.white70),
+                            decoration: const InputDecoration(
+                              hintText: 'Identifier (optional)',
+                              hintStyle: TextStyle(color: Colors.white38),
+                              border: UnderlineInputBorder(
+                                borderSide: BorderSide(color: Colors.white24),
+                              ),
+                              enabledBorder: UnderlineInputBorder(
+                                borderSide: BorderSide(color: Colors.white12),
+                              ),
+                              focusedBorder: UnderlineInputBorder(
+                                borderSide: BorderSide(color: Colors.white54),
+                              ),
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(vertical: 4),
+                              filled: false,
+                            ),
+                          )
+                        else
+                          Text(
+                            _asset.identifierValue ?? '-',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Edit Button
-                  if (!widget.maintenanceMode)
+                  // Edit Mode Buttons
+                  if (_isEditMode) ...[
                     IconButton(
-                      icon: const Icon(Icons.edit, color: Colors.blueAccent),
-                      onPressed: _showEditDialog,
-                      tooltip: 'Edit Asset',
+                      icon: const Icon(Icons.check, color: Colors.greenAccent),
+                      onPressed: _saveChanges,
+                      tooltip: 'Save Changes',
                     ),
-                  if (!widget.maintenanceMode)
                     IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: _deleteAsset,
-                      tooltip: 'Delete Asset',
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                      onPressed: _cancelEdit,
+                      tooltip: 'Cancel',
                     ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
+                  ] else ...[
+                    // View Mode Buttons
+                    if (!widget.maintenanceMode)
+                      IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.blueAccent),
+                        onPressed: _enterEditMode,
+                        tooltip: 'Edit Asset',
+                      ),
+                    if (!widget.maintenanceMode)
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.redAccent),
+                        onPressed: _deleteAsset,
+                        tooltip: 'Delete Asset',
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -515,31 +991,175 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
                               _buildInfoSection(
                                 context,
                                 title: 'Details',
-                                child: Column(
-                                  children: [
-                                    _buildDetailRow(
-                                      'Kategori',
-                                      assetCategory?.name ??
-                                          'Tidak Berkategori',
-                                    ),
-                                    _buildDetailRow(
-                                      'Ruangan',
-                                      assignedRoom?.displayName ?? 'Tidak Ada',
-                                    ),
-                                    _buildDetailRow(
-                                      'Description',
-                                      _asset.description ?? '-',
-                                    ),
-                                    _buildDetailRow(
-                                      'Purchase Date',
-                                      _asset.purchaseDate != null
-                                          ? DateFormat(
-                                              'dd MMM yyyy',
-                                            ).format(_asset.purchaseDate!)
-                                          : '-',
-                                    ),
-                                  ],
-                                ),
+                                child: _isEditMode
+                                    ? Column(
+                                        children: [
+                                          // Category Dropdown
+                                          _buildEditRow(
+                                            'Kategori',
+                                            DropdownButton<int?>(
+                                              value: _editCategoryId,
+                                              isExpanded: true,
+                                              hint: const Text(
+                                                'Pilih Kategori',
+                                              ),
+                                              underline: const SizedBox(),
+                                              items: [
+                                                const DropdownMenuItem<int?>(
+                                                  value: null,
+                                                  child: Text(
+                                                    'Tidak Berkategori',
+                                                  ),
+                                                ),
+                                                ..._allCategories.map(
+                                                  (c) => DropdownMenuItem<int?>(
+                                                    value: c.id,
+                                                    child: Text(c.name),
+                                                  ),
+                                                ),
+                                              ],
+                                              onChanged: (v) => setState(
+                                                () => _editCategoryId = v,
+                                              ),
+                                            ),
+                                          ),
+                                          // Room Dropdown
+                                          _buildEditRow(
+                                            'Ruangan',
+                                            DropdownButton<int?>(
+                                              value: _editRoomId,
+                                              isExpanded: true,
+                                              hint: const Text('Pilih Ruangan'),
+                                              underline: const SizedBox(),
+                                              items: [
+                                                const DropdownMenuItem<int?>(
+                                                  value: null,
+                                                  child: Text('Tidak Ada'),
+                                                ),
+                                                ..._allRooms.map(
+                                                  (r) => DropdownMenuItem<int?>(
+                                                    value: r.id,
+                                                    child: Text(r.displayName),
+                                                  ),
+                                                ),
+                                              ],
+                                              onChanged: (v) => setState(
+                                                () => _editRoomId = v,
+                                              ),
+                                            ),
+                                          ),
+                                          // Description TextField
+                                          _buildEditRow(
+                                            'Description',
+                                            TextField(
+                                              controller: _descController,
+                                              decoration: InputDecoration(
+                                                hintText: 'Enter description',
+                                                hintStyle: TextStyle(
+                                                  color: Colors.grey.shade400,
+                                                  fontSize: 14,
+                                                ),
+                                                isDense: true,
+                                                border: UnderlineInputBorder(
+                                                  borderSide: BorderSide(
+                                                    color: Colors.grey.shade300,
+                                                  ),
+                                                ),
+                                                enabledBorder:
+                                                    UnderlineInputBorder(
+                                                      borderSide: BorderSide(
+                                                        color: Colors
+                                                            .grey
+                                                            .shade300,
+                                                      ),
+                                                    ),
+                                                focusedBorder:
+                                                    UnderlineInputBorder(
+                                                      borderSide: BorderSide(
+                                                        color:
+                                                            AppColors.primary,
+                                                      ),
+                                                    ),
+                                                contentPadding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 8,
+                                                    ),
+                                              ),
+                                              maxLines: null,
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                color: AppColors.textPrimary,
+                                              ),
+                                            ),
+                                          ),
+                                          // Purchase Date Picker
+                                          _buildEditRow(
+                                            'Purchase Date',
+                                            InkWell(
+                                              onTap: _selectPurchaseDate,
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 8,
+                                                    ),
+                                                child: Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        _editPurchaseDate !=
+                                                                null
+                                                            ? DateFormat(
+                                                                'dd MMM yyyy',
+                                                              ).format(
+                                                                _editPurchaseDate!,
+                                                              )
+                                                            : 'Select date',
+                                                        style: TextStyle(
+                                                          color:
+                                                              _editPurchaseDate !=
+                                                                  null
+                                                              ? Colors.black87
+                                                              : Colors.grey,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const Icon(
+                                                      Icons.calendar_today,
+                                                      size: 16,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : Column(
+                                        children: [
+                                          _buildDetailRow(
+                                            'Kategori',
+                                            assetCategory?.name ??
+                                                'Tidak Berkategori',
+                                          ),
+                                          _buildDetailRow(
+                                            'Ruangan',
+                                            assignedRoom?.displayName ??
+                                                'Tidak Ada',
+                                          ),
+                                          _buildDetailRow(
+                                            'Description',
+                                            _asset.description ?? '-',
+                                          ),
+                                          _buildDetailRow(
+                                            'Purchase Date',
+                                            _asset.purchaseDate != null
+                                                ? DateFormat(
+                                                    'dd MMM yyyy',
+                                                  ).format(_asset.purchaseDate!)
+                                                : '-',
+                                          ),
+                                        ],
+                                      ),
                               ),
                               const SizedBox(height: 16),
 
@@ -928,6 +1548,46 @@ class _AssetDetailDialogState extends State<AssetDetailDialog> {
                                                       ),
                                                     ),
                                                   ),
+                                                // Generate Report Button
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        top: 8,
+                                                      ),
+                                                  child: OutlinedButton.icon(
+                                                    onPressed: () =>
+                                                        _showHandoverReportDialog(
+                                                          log,
+                                                        ),
+                                                    icon: const Icon(
+                                                      Icons
+                                                          .description_outlined,
+                                                      size: 16,
+                                                    ),
+                                                    label: const Text(
+                                                      'Generate Report',
+                                                    ),
+                                                    style: OutlinedButton.styleFrom(
+                                                      foregroundColor:
+                                                          AppColors.primary,
+                                                      side: BorderSide(
+                                                        color: AppColors.primary
+                                                            .withValues(
+                                                              alpha: 0.5,
+                                                            ),
+                                                      ),
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 12,
+                                                            vertical: 4,
+                                                          ),
+                                                      textStyle:
+                                                          const TextStyle(
+                                                            fontSize: 12,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ),
                                               ],
                                             ),
                                           ),

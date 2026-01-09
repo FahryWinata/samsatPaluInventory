@@ -33,7 +33,7 @@ class ExportService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.all(40),
         build: (context) => [
           _buildCustomHeader(logoImage, font, boldFont),
@@ -84,7 +84,9 @@ class ExportService {
   // Generate Asset Report
   Future<void> generateAssetReport(
     List<Asset> assets,
-    Map<int, String> holderNames, {
+    Map<int, String> holderNames,
+    Map<int, String> categoryNames,
+    Map<int, String> roomNames, {
     String? customTitle,
     String? approverName,
     String? approverRank,
@@ -108,7 +110,7 @@ class ExportService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.all(40),
         build: (context) => [
           _buildCustomHeader(logoImage, font, boldFont),
@@ -124,7 +126,14 @@ class ExportService {
             ),
           ),
           pw.SizedBox(height: 20),
-          _buildAssetTable(assets, holderNames, font, boldFont),
+          _buildAssetTable(
+            assets,
+            holderNames,
+            categoryNames,
+            roomNames,
+            font,
+            boldFont,
+          ),
           pw.SizedBox(height: 40),
           _buildTripleSignature(
             font,
@@ -348,59 +357,60 @@ class ExportService {
             ),
           ],
         ),
-        // Spacing between top row and third signature
-        pw.SizedBox(height: 30),
-        // Third signature - Centered below
-        pw.Center(
-          child: pw.Container(
-            width: 200,
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.center,
-              children: [
-                pw.Container(
-                  height: 50,
-                  child: pw.Column(
-                    children: [
-                      pw.Text(
-                        'Mengetahui,',
-                        style: pw.TextStyle(font: boldFont, fontSize: 9),
-                        textAlign: pw.TextAlign.center,
-                      ),
-                      pw.Text(
-                        thirdSignerTitle ??
-                            'KEPALA UNIT PELAKSANA TEKNIS\nPENDAPATAN DAERAH WILAYAH I PALU',
-                        style: pw.TextStyle(font: boldFont, fontSize: 9),
-                        textAlign: pw.TextAlign.center,
-                      ),
-                    ],
+        if (thirdSignerName != null && thirdSignerName.isNotEmpty) ...[
+          // Spacing between top row and third signature
+          pw.SizedBox(height: 30),
+          // Third signature - Centered below
+          pw.Center(
+            child: pw.Container(
+              width: 200,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Container(
+                    height: 50,
+                    child: pw.Column(
+                      children: [
+                        pw.Text(
+                          'Mengetahui,',
+                          style: pw.TextStyle(font: boldFont, fontSize: 9),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                        pw.Text(
+                          thirdSignerTitle ??
+                              'KEPALA UNIT PELAKSANA TEKNIS\nPENDAPATAN DAERAH WILAYAH I PALU',
+                          style: pw.TextStyle(font: boldFont, fontSize: 9),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-
-                pw.Text(
-                  thirdSignerName ?? '',
-                  style: pw.TextStyle(
-                    font: boldFont,
-                    fontSize: 9,
-                    decoration: pw.TextDecoration.underline,
-                  ),
-                  textAlign: pw.TextAlign.center,
-                ),
-                if (thirdSignerRank != null && thirdSignerRank.isNotEmpty)
                   pw.Text(
-                    thirdSignerRank,
-                    style: pw.TextStyle(font: font, fontSize: 9),
+                    thirdSignerName,
+                    style: pw.TextStyle(
+                      font: boldFont,
+                      fontSize: 9,
+                      decoration: pw.TextDecoration.underline,
+                    ),
                     textAlign: pw.TextAlign.center,
                   ),
-                if (thirdSignerNip != null && thirdSignerNip.isNotEmpty)
-                  pw.Text(
-                    'NIP. $thirdSignerNip',
-                    style: pw.TextStyle(font: font, fontSize: 9),
-                    textAlign: pw.TextAlign.center,
-                  ),
-              ],
+                  if (thirdSignerRank != null && thirdSignerRank.isNotEmpty)
+                    pw.Text(
+                      thirdSignerRank,
+                      style: pw.TextStyle(font: font, fontSize: 9),
+                      textAlign: pw.TextAlign.center,
+                    ),
+                  if (thirdSignerNip != null && thirdSignerNip.isNotEmpty)
+                    pw.Text(
+                      'NIP. $thirdSignerNip',
+                      style: pw.TextStyle(font: font, fontSize: 9),
+                      textAlign: pw.TextAlign.center,
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -500,6 +510,8 @@ class ExportService {
   pw.Widget _buildAssetTable(
     List<Asset> assets,
     Map<int, String> holderNames,
+    Map<int, String> categoryNames,
+    Map<int, String> roomNames,
     pw.Font font,
     pw.Font boldFont,
   ) {
@@ -518,6 +530,24 @@ class ExportService {
             ),
             _buildTableCell(
               'Nama Aset',
+              boldFont,
+              align: pw.TextAlign.center,
+              isHeader: true,
+            ),
+            _buildTableCell(
+              'Kategori',
+              boldFont,
+              align: pw.TextAlign.center,
+              isHeader: true,
+            ),
+            _buildTableCell(
+              'Ruangan',
+              boldFont,
+              align: pw.TextAlign.center,
+              isHeader: true,
+            ),
+            _buildTableCell(
+              'Tahun',
               boldFont,
               align: pw.TextAlign.center,
               isHeader: true,
@@ -560,6 +590,25 @@ class ExportService {
                 align: pw.TextAlign.center,
               ),
               _buildTableCell(asset.name, font),
+              _buildTableCell(
+                asset.categoryId != null
+                    ? categoryNames[asset.categoryId] ?? '-'
+                    : '-',
+                font,
+              ),
+              _buildTableCell(
+                asset.assignedToRoomId != null
+                    ? roomNames[asset.assignedToRoomId] ?? '-'
+                    : '-',
+                font,
+              ),
+              _buildTableCell(
+                asset.purchaseDate != null
+                    ? DateFormat('yyyy').format(asset.purchaseDate!)
+                    : '-',
+                font,
+                align: pw.TextAlign.center,
+              ),
               _buildTableCell(asset.identifierValue ?? '-', font),
               // Status color indicator
               _buildStatusColorCell(asset.status),

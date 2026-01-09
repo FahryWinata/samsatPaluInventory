@@ -42,13 +42,18 @@ class Asset {
     int? id,
     String? name,
     String? identifierValue,
+    bool clearIdentifierValue = false,
     String? description,
+    bool clearDescription = false,
     DateTime? purchaseDate,
     String? status,
     int? currentHolderId,
+    bool clearCurrentHolderId = false,
     int? categoryId,
     int? assignedToRoomId,
+    bool clearAssignedToRoomId = false,
     String? imagePath,
+    bool clearImagePath = false,
     String? maintenanceLocation,
     bool? requiresMaintenance,
     int? maintenanceIntervalDays,
@@ -60,14 +65,20 @@ class Asset {
     return Asset(
       id: id ?? this.id,
       name: name ?? this.name,
-      identifierValue: identifierValue ?? this.identifierValue,
-      description: description ?? this.description,
+      identifierValue: clearIdentifierValue
+          ? null
+          : (identifierValue ?? this.identifierValue),
+      description: clearDescription ? null : (description ?? this.description),
       purchaseDate: purchaseDate ?? this.purchaseDate,
       status: status ?? this.status,
-      currentHolderId: currentHolderId ?? this.currentHolderId,
+      currentHolderId: clearCurrentHolderId
+          ? null
+          : (currentHolderId ?? this.currentHolderId),
       categoryId: categoryId ?? this.categoryId,
-      assignedToRoomId: assignedToRoomId ?? this.assignedToRoomId,
-      imagePath: imagePath ?? this.imagePath,
+      assignedToRoomId: clearAssignedToRoomId
+          ? null
+          : (assignedToRoomId ?? this.assignedToRoomId),
+      imagePath: clearImagePath ? null : (imagePath ?? this.imagePath),
       maintenanceLocation: maintenanceLocation ?? this.maintenanceLocation,
       requiresMaintenance: requiresMaintenance ?? this.requiresMaintenance,
       maintenanceIntervalDays:

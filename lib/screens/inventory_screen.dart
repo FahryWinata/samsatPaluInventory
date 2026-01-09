@@ -219,7 +219,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Future<void> _adjustQuantity(InventoryItem item, bool isIncrease) async {
-    final amount = await showDialog<int>(
+    final result = await showDialog<QuantityResult>(
       context: context,
       builder: (context) => QuantityDialog(
         itemName: item.name,
@@ -228,11 +228,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
       ),
     );
 
-    if (amount != null) {
+    if (result != null) {
       try {
         if (isIncrease) {
-          await inventoryService.increaseQuantity(item.id!, amount);
-          // ADDED: Confirmation for Increase
+          await inventoryService.increaseQuantity(
+            item.id!,
+            result.amount,
+            notes: result.notes,
+          );
           if (mounted) {
             SnackBarHelper.showSuccess(
               context,
@@ -240,8 +243,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
             );
           }
         } else {
-          await inventoryService.decreaseQuantity(item.id!, amount);
-          // ADDED: Confirmation for Decrease
+          await inventoryService.decreaseQuantity(
+            item.id!,
+            result.amount,
+            notes: result.notes,
+          );
           if (mounted) {
             SnackBarHelper.showSuccess(
               context,

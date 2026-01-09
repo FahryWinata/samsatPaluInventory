@@ -333,7 +333,7 @@ class AppLocalizations {
     'id': {
       // Navigation
       'dashboard': 'Dasbor',
-      'inventory': 'Inventaris',
+      'inventory': 'ATK',
       'assets': 'Aset',
       'reports': 'Laporan',
       'users': 'Pengguna',
@@ -343,7 +343,7 @@ class AppLocalizations {
       'welcome_back': 'Selamat datang kembali!',
       'admin_user': 'Pengguna Admin',
       'overview': 'Ringkasan',
-      'total_inventory': 'Total Inventaris',
+      'total_inventory': 'Total ATK',
       'total_assets': 'Total Aset',
       'available': 'Tersedia',
       'assigned': 'Ditugaskan',
@@ -361,7 +361,7 @@ class AppLocalizations {
       'last_backup': 'Cadangan terakhir: Hari ini',
 
       // Inventory
-      'inventory_management': 'Manajemen Inventaris',
+      'inventory_management': 'Manajemen ATK',
       'search_items': 'Cari item...',
       'add_item': 'Tambah Item',
       'all_items': 'Semua Item',
@@ -548,9 +548,9 @@ class AppLocalizations {
 
       // Dashboard (New)
       'asset_overview': 'Ringkasan Aset',
-      'inventory_summary': 'Ringkasan Inventaris',
+      'inventory_summary': 'Ringkasan ATK',
       'asset_status_distribution': 'Distribusi Status Aset',
-      'inventory_health': 'Kesehatan Inventaris',
+      'inventory_health': 'Kesehatan ATK',
       'stock_alerts': 'Peringatan Stok',
       'item_header': 'Item',
       'date_header': 'Tanggal',
@@ -558,7 +558,7 @@ class AppLocalizations {
       'failed_load_data': 'Gagal memuat data',
 
       // Inventory (New)
-      'overall_inventory': 'Keseluruhan Inventaris',
+      'overall_inventory': 'Keseluruhan ATK',
       'total_products': 'Total Produk',
       'good_stock': 'Stok Aman',
       'products_header': 'Produk',
@@ -576,7 +576,7 @@ class AppLocalizations {
       'activity_log': 'Log Aktivitas',
       'transfers': 'Riwayat Transfer',
       'export_data': 'Ekspor Data',
-      'inventory_report': 'Laporan Inventaris',
+      'inventory_report': 'Laporan ATK',
       'inventory_report_desc': 'Daftar lengkap barang dan stok saat ini',
       'asset_status_report': 'Laporan Status Aset',
       'asset_report_desc': 'Daftar detail aset, nomor seri, dan pemegang',
@@ -597,7 +597,7 @@ class AppLocalizations {
       'total': 'Total',
       'no_data': 'Tidak Ada Data',
       'no_activity_logs': 'Belum ada log aktivitas',
-      'inventory_healthy': 'Inventaris sehat',
+      'inventory_healthy': 'ATK sehat',
       'select_holder': 'Pilih Pemegang',
       'confirm_maintenance': 'Konfirmasi Perawatan',
       'enter_maintenance_note': 'Masukkan lokasi atau catatan perawatan:',
