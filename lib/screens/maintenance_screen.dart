@@ -215,27 +215,63 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            child: Text(
+              'Jadwal Perawatan',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // Search Bar
           Container(
-            color: Colors.white,
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
                 hintText: context.t('search_assets'),
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const Icon(
+                  Icons.search,
+                  size: 20,
+                  color: AppColors.textSecondary,
+                ),
                 suffixIcon: searchQuery.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.clear),
+                        icon: const Icon(Icons.clear, size: 18),
                         onPressed: () {
                           _searchController.clear();
                           _onSearchChanged('');
                         },
                       )
                     : null,
+                filled: true,
+                fillColor: Colors.white,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.5,
+                  ),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 0,
+                  horizontal: 16,
                 ),
               ),
               onChanged: _onSearchChanged,
@@ -308,7 +344,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
                               child: _buildKanbanColumn(
                                 context.t('future_maintenance'),
                                 futureAssets,
-                                Colors.blue,
+                                AppColors.blue,
                               ),
                             ),
                           ],
@@ -391,9 +427,16 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
       decoration: fullWidth
           ? null
           : BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.divider, width: 0.5),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.shadow,
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -503,14 +546,14 @@ class _MaintenanceCard extends StatelessWidget {
     String statusText;
 
     if (isOverdue) {
-      statusColor = Colors.red;
+      statusColor = AppColors.error;
       statusText =
           '${daysUntil?.abs() ?? 0} ${context.t('days')} ${context.t('overdue')}';
     } else if (daysUntil != null && daysUntil <= 30) {
-      statusColor = Colors.orange;
+      statusColor = AppColors.warning;
       statusText = '${context.t('due_in')} $daysUntil ${context.t('days')}';
     } else {
-      statusColor = Colors.blue;
+      statusColor = AppColors.info;
       statusText = context.t('scheduled');
     }
 
@@ -519,7 +562,7 @@ class _MaintenanceCard extends StatelessWidget {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: const BorderSide(color: AppColors.divider),
       ),
       child: InkWell(
         onTap: onTap,

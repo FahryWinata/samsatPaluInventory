@@ -154,7 +154,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final isDesktop = width > 900;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: AppColors.background,
       body: isLoading
           ? _buildLoadingSkeleton(isDesktop)
           : hasError
@@ -307,17 +307,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildSkeletonCard({required double height}) {
     return Container(
       height: height,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.divider),
       ),
     );
   }
@@ -334,9 +328,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Text(
               context.t('dashboard'),
               style: const TextStyle(
-                fontSize: 24,
+                fontSize: 28, // Larger title
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF2C3E50),
+                color: AppColors.textPrimary,
+                letterSpacing: -0.5,
               ),
             ),
             Text(
@@ -369,7 +364,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: context.t('total'),
               value: totalAssets.toString(),
               icon: Icons.devices,
-              color: Colors.blue,
+              color: AppColors.blue,
             ),
           ),
           _divider(),
@@ -378,7 +373,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: context.t('avail'),
               value: availableAssets.toString(),
               icon: Icons.check_circle_outline,
-              color: Colors.teal,
+              color: AppColors.teal,
             ),
           ),
           _divider(),
@@ -387,7 +382,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: context.t('assigned'),
               value: assignedAssets.toString(),
               icon: Icons.person_outline,
-              color: Colors.orange,
+              color: AppColors.assigned,
             ),
           ),
           _divider(),
@@ -396,7 +391,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: context.t('maint'),
               value: maintenanceAssets.toString(),
               icon: Icons.build_circle_outlined,
-              color: Colors.red,
+              color: AppColors.maintenance,
             ),
           ),
         ],
@@ -415,7 +410,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: context.t('total'),
               value: totalInventoryItems.toString(),
               icon: Icons.inventory_2_outlined,
-              color: Colors.indigo,
+              color: AppColors.primary,
             ),
           ),
           _divider(),
@@ -424,7 +419,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: context.t('low'),
               value: lowStockCount.toString(),
               icon: Icons.warning_amber_rounded,
-              color: Colors.amber,
+              color: AppColors.warning,
             ),
           ),
           _divider(),
@@ -433,7 +428,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: context.t('out'),
               value: outOfStockCount.toString(),
               icon: Icons.highlight_off,
-              color: Colors.red,
+              color: AppColors.error,
             ),
           ),
         ],
@@ -554,21 +549,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       sections: [
                         if (goodStockCount > 0)
                           PieChartSectionData(
-                            color: Colors.green,
+                            color: AppColors.success,
                             value: goodStockCount.toDouble(),
                             title: '',
                             radius: 30,
                           ),
                         if (lowStockCount > 0)
                           PieChartSectionData(
-                            color: Colors.amber,
+                            color: AppColors.warning,
                             value: lowStockCount.toDouble(),
                             title: '',
                             radius: 35,
                           ),
                         if (outOfStockCount > 0)
                           PieChartSectionData(
-                            color: Colors.red,
+                            color: AppColors.error,
                             value: outOfStockCount.toDouble(),
                             title: '',
                             radius: 40,
@@ -890,13 +885,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Color _getActionColor(String action) {
     switch (action.toLowerCase()) {
       case 'create':
-        return Colors.green;
+        return AppColors.success;
       case 'update':
-        return Colors.blue;
+        return AppColors.info;
       case 'delete':
-        return Colors.red;
+        return AppColors.error;
       case 'transfer':
-        return Colors.orange;
+        return AppColors.warning;
       default:
         return Colors.grey;
     }
@@ -917,14 +912,18 @@ class _BentoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20), // Increased padding
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(16), // Increased radius
+        border: Border.all(
+          color: AppColors.divider,
+          width: 0.5,
+        ), // Subtle border
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.05),
-            blurRadius: 10,
+            color: AppColors.shadow, // Using new shadow color
+            blurRadius: 20,
             offset: const Offset(0, 4),
           ),
         ],
@@ -936,12 +935,13 @@ class _BentoCard extends StatelessWidget {
           Text(
             title,
             style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2C3E50),
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+              letterSpacing: -0.3,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           if (disableExpand) child else Expanded(child: child),
         ],
       ),

@@ -21,87 +21,70 @@ class AppSidebar extends StatelessWidget {
       color: AppColors.sidebarBackground,
       child: Column(
         children: [
-          // Logo/Header
-          Container(
-            padding: const EdgeInsets.all(24),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.inventory_2,
-                    color: Colors.white,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Inventarisku',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const Divider(color: Colors.white24, height: 1),
-
+          // Spacing at top
+          const SizedBox(height: 32),
           // Navigation Items
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
+                // GENERAL Section
+                _SidebarSectionHeader(
+                  title: localization.t('general').toUpperCase(),
+                ),
                 _SidebarItem(
-                  icon: Icons.dashboard,
+                  icon: Icons.grid_view_rounded, // Dashboard icon
                   title: localization.t('dashboard'),
                   isSelected: selectedIndex == 0,
                   onTap: () => onItemSelected(0),
                 ),
+
+                const SizedBox(height: 16),
+
+                // MANAGEMENT Section
+                _SidebarSectionHeader(title: 'MANAGEMENT'),
                 _SidebarItem(
-                  icon: Icons.inventory,
+                  icon: Icons.inventory_2_outlined,
                   title: localization.t('inventory'),
                   isSelected: selectedIndex == 1,
                   onTap: () => onItemSelected(1),
                 ),
                 _SidebarItem(
-                  icon: Icons.devices,
+                  icon: Icons.devices_other_rounded,
                   title: localization.t('assets'),
                   isSelected: selectedIndex == 2,
                   onTap: () => onItemSelected(2),
                 ),
                 _SidebarItem(
-                  icon: Icons.assessment,
+                  icon: Icons.build_circle_outlined,
+                  title: localization.t('maintenance_reminder'),
+                  isSelected: selectedIndex == 4,
+                  onTap: () => onItemSelected(4),
+                ),
+
+                const SizedBox(height: 16),
+
+                // TOOLS Section
+                _SidebarSectionHeader(title: 'TOOLS'),
+                _SidebarItem(
+                  icon: Icons.analytics_outlined,
                   title: localization.t('reports'),
                   isSelected: selectedIndex == 3,
                   onTap: () => onItemSelected(3),
                 ),
                 _SidebarItem(
-                  icon: Icons.build,
-                  title: localization.t('maintenance_reminder'),
-                  isSelected: selectedIndex == 4,
-                  onTap: () => onItemSelected(4),
-                ),
-                _SidebarItem(
-                  icon: Icons.people,
+                  icon: Icons.people_outline_rounded,
                   title: localization.t('users'),
                   isSelected: selectedIndex == 5,
                   onTap: () => onItemSelected(5),
                 ),
+
                 const SizedBox(height: 16),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Divider(color: Colors.white24),
-                ),
-                const SizedBox(height: 16),
+
+                // SUPPORT Section
+                _SidebarSectionHeader(title: 'SUPPORT'),
                 _SidebarItem(
-                  icon: Icons.settings,
+                  icon: Icons.settings_outlined,
                   title: localization.t('settings'),
                   isSelected: selectedIndex == 6,
                   onTap: () => onItemSelected(6),
@@ -109,7 +92,31 @@ class AppSidebar extends StatelessWidget {
               ],
             ),
           ),
+
+          // User Profile Snippet (Optional - matches design bottom left)
+          // Adding a placeholder for the logged-in user if desired later
         ],
+      ),
+    );
+  }
+}
+
+class _SidebarSectionHeader extends StatelessWidget {
+  final String title;
+  const _SidebarSectionHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 16, 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -131,41 +138,52 @@ class _SidebarItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
+          hoverColor: AppColors.primary.withValues(alpha: 0.05),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: isSelected
-                  ? AppColors.primary.withValues(alpha: 0.2)
+                  ? AppColors.primary.withValues(alpha: 0.1)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              border: isSelected
-                  ? Border(left: BorderSide(color: AppColors.primary, width: 3))
-                  : null,
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
               children: [
                 Icon(
                   icon,
-                  color: isSelected ? AppColors.primary : Colors.white70,
-                  size: 22,
+                  color: isSelected
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
+                  size: 20,
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Text(
                   title,
                   style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.white70,
-                    fontSize: 15,
-                    fontWeight: isSelected
-                        ? FontWeight.w600
-                        : FontWeight.normal,
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    fontSize: 14,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                   ),
                 ),
+                if (isSelected) ...[
+                  const Spacer(),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

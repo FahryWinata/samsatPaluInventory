@@ -259,11 +259,25 @@ class _UsersScreenState extends State<UsersScreen>
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Page Title
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            child: Text(
+              'Manajemen Pengguna',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // Header / Top Bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-            color: Colors.white,
             child: Column(
               children: [
                 Row(
@@ -296,16 +310,23 @@ class _UsersScreenState extends State<UsersScreen>
                             vertical: 0,
                             horizontal: 16,
                           ),
+                          filled: true,
+                          fillColor: Colors.white,
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide(color: Colors.grey.shade300),
                           ),
                           enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide(color: Colors.grey.shade300),
                           ),
-                          filled: true,
-                          fillColor: Colors.white,
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: AppColors.primary,
+                              width: 1.5,
+                            ),
+                          ),
                         ),
                         style: const TextStyle(fontSize: 14),
                       ),
@@ -332,7 +353,7 @@ class _UsersScreenState extends State<UsersScreen>
                           vertical: 18,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                     ),
@@ -342,14 +363,34 @@ class _UsersScreenState extends State<UsersScreen>
             ),
           ),
 
-          const Divider(height: 1, color: Color(0xFFEEEEEE)),
+          // const Divider(height: 1, color: Color(0xFFEEEEEE)),
 
-          // Content
+          // Content - Wrapped in styled card like ATK page
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              physics: const NeverScrollableScrollPhysics(),
-              children: [_buildUserTable(), _buildRoomTable()],
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.cardBackground,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.divider, width: 0.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.shadow,
+                      blurRadius: 20,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: TabBarView(
+                    controller: _tabController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: [_buildUserTable(), _buildRoomTable()],
+                  ),
+                ),
+              ),
             ),
           ),
         ],
@@ -473,13 +514,13 @@ class _UsersScreenState extends State<UsersScreen>
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.green.shade50,
+                    color: AppColors.success.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Active',
                     style: TextStyle(
-                      color: Colors.green,
+                      color: AppColors.success,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
@@ -556,13 +597,13 @@ class _UsersScreenState extends State<UsersScreen>
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
+                          color: AppColors.blue.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
                           'Occupied',
                           style: TextStyle(
-                            color: Colors.blue,
+                            color: AppColors.blue,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
@@ -580,7 +621,7 @@ class _UsersScreenState extends State<UsersScreen>
                         child: const Text(
                           'Empty',
                           style: TextStyle(
-                            color: Colors.grey,
+                            color: AppColors.textSecondary,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),

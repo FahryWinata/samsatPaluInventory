@@ -422,7 +422,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     final isDesktop = MediaQuery.of(context).size.width > 900;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: AppColors.background,
       body: isLoading
           ? _buildLoadingSkeleton(isDesktop)
           : hasError
@@ -438,7 +438,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -451,12 +451,16 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        color: AppColors.cardBackground,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: AppColors.divider,
+                          width: 0.5,
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.grey.withValues(alpha: 0.05),
-                            blurRadius: 10,
+                            color: AppColors.shadow,
+                            blurRadius: 20,
                             offset: const Offset(0, 4),
                           ),
                         ],
@@ -526,25 +530,25 @@ class _InventoryScreenState extends State<InventoryScreen> {
       _buildStatCard(
         context.t('total_products'),
         totalItems.toString(),
-        Colors.blue,
+        AppColors.primary,
         'all',
       ),
       _buildStatCard(
         context.t('good_stock'),
         goodStockCount.toString(),
-        Colors.green,
+        AppColors.success,
         'good',
       ),
       _buildStatCard(
         context.t('low_stock'),
         lowStockCount.toString(),
-        Colors.amber,
+        AppColors.warning,
         'low',
       ),
       _buildStatCard(
         context.t('out_of_stock'),
         outOfStockCount.toString(),
-        Colors.red,
+        AppColors.error,
         'out',
       ),
     ];
@@ -600,50 +604,71 @@ class _InventoryScreenState extends State<InventoryScreen> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          color: AppColors.cardBackground,
+          borderRadius: BorderRadius.circular(16), // Rounded 16
+          border: Border.all(color: AppColors.divider, width: 0.5),
           boxShadow: [
             if (isSelected)
               BoxShadow(
-                color: color.withValues(alpha: 0.1),
-                blurRadius: 12,
+                color: color.withValues(
+                  alpha: 0.2,
+                ), // Stronger shadow for selected
+                blurRadius: 16,
                 offset: const Offset(0, 4),
               )
             else
               BoxShadow(
-                color: Colors.grey.withValues(alpha: 0.05),
-                blurRadius: 10,
+                color: AppColors.shadow,
+                blurRadius: 20,
                 offset: const Offset(0, 4),
               ),
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           child: IntrinsicHeight(
             child: Row(
               children: [
                 Container(width: 4, color: color),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(20), // Increased padding
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          title,
-                          style: TextStyle(
-                            color: color,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.inventory_2_outlined,
+                                size: 16,
+                                color: color,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              title,
+                              style: TextStyle(
+                                color: AppColors.textSecondary, // Muted title
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 16),
                         Text(
                           value,
                           style: const TextStyle(
-                            fontSize: 24,
+                            fontSize: 28, // Larger number
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF2C3E50),
+                            color: AppColors.textPrimary,
+                            letterSpacing: -1,
                           ),
                         ),
                       ],
@@ -777,8 +802,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          color: Colors.grey[50],
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          decoration: const BoxDecoration(
+            color: AppColors.background, // Light header background
+            border: Border(bottom: BorderSide(color: AppColors.divider)),
+          ),
           child: Row(
             children: [
               Expanded(

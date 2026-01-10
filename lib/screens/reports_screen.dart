@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../utils/app_colors.dart';
 import '../services/inventory_service.dart';
@@ -160,10 +159,24 @@ class _ReportsScreenState extends State<ReportsScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Page Title
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            child: Text(
+              'Laporan & Statistik',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // Custom Tab Bar
           Container(
-            color: Colors.white,
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: SingleChildScrollView(
@@ -253,37 +266,6 @@ class _ReportsScreenState extends State<ReportsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            context.t('data_visualization'),
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 24),
-
-          // --- CHARTS ROW ---
-          LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth > 900) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _buildAssetChart()),
-                    const SizedBox(width: 24),
-                    Expanded(child: _buildInventoryChart()),
-                  ],
-                );
-              } else {
-                return Column(
-                  children: [
-                    _buildAssetChart(),
-                    const SizedBox(height: 24),
-                    _buildInventoryChart(),
-                  ],
-                );
-              }
-            },
-          ),
-
-          const SizedBox(height: 40),
           Text(
             context.t('export_data'),
             style: Theme.of(context).textTheme.headlineSmall,
@@ -991,147 +973,6 @@ class _ReportsScreenState extends State<ReportsScreen>
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildAssetChart() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              context.t('asset_distribution'),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 180,
-              child: PieChart(
-                PieChartData(
-                  sectionsSpace: 0,
-                  centerSpaceRadius: 40,
-                  sections: [
-                    PieChartSectionData(
-                      color: AppColors.available,
-                      value: availableCount.toDouble(),
-                      title: '$availableCount',
-                      radius: 50,
-                      titleStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    PieChartSectionData(
-                      color: AppColors.assigned,
-                      value: assignedCount.toDouble(),
-                      title: '$assignedCount',
-                      radius: 50,
-                      titleStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    PieChartSectionData(
-                      color: AppColors.maintenance,
-                      value: maintenanceCount.toDouble(),
-                      title: '$maintenanceCount',
-                      radius: 50,
-                      titleStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            _buildLegendItem(context.t('available'), AppColors.available),
-            const SizedBox(height: 8),
-            _buildLegendItem(context.t('assigned'), AppColors.assigned),
-            const SizedBox(height: 8),
-            _buildLegendItem(context.t('maintenance'), AppColors.maintenance),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInventoryChart() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              context.t('inventory_health'),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 180,
-              child: PieChart(
-                PieChartData(
-                  sectionsSpace: 0,
-                  centerSpaceRadius: 40,
-                  sections: [
-                    PieChartSectionData(
-                      color: Colors.green,
-                      value: goodStockCount.toDouble(),
-                      title: '$goodStockCount',
-                      radius: 50,
-                      titleStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    PieChartSectionData(
-                      color: Colors.redAccent,
-                      value: lowStockCount.toDouble(),
-                      title: '$lowStockCount',
-                      radius: 50,
-                      titleStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            _buildLegendItem(context.t('good_stock'), Colors.green),
-            const SizedBox(height: 8),
-            _buildLegendItem(context.t('low_stock'), Colors.redAccent),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLegendItem(String title, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 8),
-        Text(title, style: const TextStyle(fontSize: 14)),
-      ],
     );
   }
 

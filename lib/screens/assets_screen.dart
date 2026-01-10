@@ -448,11 +448,25 @@ class _AssetsScreenState extends State<AssetsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            child: Text(
+              'Manajemen Aset',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // Search and Add Bar
           Container(
-            color: Colors.white,
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             child: Row(
               children: [
                 Expanded(
@@ -460,26 +474,48 @@ class _AssetsScreenState extends State<AssetsScreen> {
                     controller: _searchController,
                     decoration: InputDecoration(
                       hintText: context.t('search_assets'),
-                      prefixIcon: const Icon(Icons.search),
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        size: 20,
+                        color: AppColors.textSecondary,
+                      ),
                       suffixIcon: searchQuery.isNotEmpty
                           ? IconButton(
-                              icon: const Icon(Icons.clear),
+                              icon: const Icon(Icons.clear, size: 18),
                               onPressed: () {
                                 _searchController.clear();
                                 _onSearchChanged('');
                               },
                             )
                           : null,
+                      filled: true,
+                      fillColor: Colors.white,
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: AppColors.primary,
+                          width: 1.5,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 0,
+                        horizontal: 16,
                       ),
                     ),
                     onChanged: _onSearchChanged,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
 
-                // Category Filter (Custom Widget)
+                // Categories Filter
                 SizedBox(
                   width: 200,
                   child: CustomFilterDropdown<({int id, String name})>(
@@ -500,9 +536,9 @@ class _AssetsScreenState extends State<AssetsScreen> {
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
 
-                // Room Filter (Custom Widget)
+                // Rooms Filter
                 SizedBox(
                   width: 200,
                   child: CustomFilterDropdown<({int id, String name})>(
@@ -522,19 +558,23 @@ class _AssetsScreenState extends State<AssetsScreen> {
                   ),
                 ),
 
-                const SizedBox(width: 16),
+                const SizedBox(width: 24),
 
-                // Add Asset Button
+                // Add Button
                 ElevatedButton.icon(
                   onPressed: _showAddDialog,
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(Icons.add, size: 20),
                   label: Text(context.t('add_asset')),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
+                    elevation: 0,
                     padding: const EdgeInsets.symmetric(
-                      vertical: 16,
+                      vertical: 20,
                       horizontal: 24,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                 ),
@@ -884,7 +924,7 @@ class _AssetsScreenState extends State<AssetsScreen> {
                         child: ListView.separated(
                           shrinkWrap: true,
                           itemCount: candidates.length,
-                          separatorBuilder: (_, __) =>
+                          separatorBuilder: (_, _a) =>
                               const SizedBox(height: 6),
                           itemBuilder: (context, i) {
                             final c = candidates[i];
@@ -1086,18 +1126,22 @@ class _AssetsScreenState extends State<AssetsScreen> {
                           Navigator.pop(context);
                           try {
                             await assetService.splitAsset(asset, splitQuantity);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Asset split successfully'),
-                              ),
-                            );
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Asset split successfully'),
+                                ),
+                              );
+                            }
                             _loadAssets();
                           } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Error splitting asset: $e'),
-                              ),
-                            );
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error splitting asset: $e'),
+                                ),
+                              );
+                            }
                           }
                         },
                   child: const Text('Split'),
@@ -1124,9 +1168,16 @@ class _AssetsScreenState extends State<AssetsScreen> {
       decoration: fullWidth
           ? null
           : BoxDecoration(
-              color: Colors.grey.shade50, // Lighter background
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
+              color: AppColors.cardBackground, // White background for column
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.divider, width: 0.5),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.shadow,
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1192,12 +1243,14 @@ class _AssetsScreenState extends State<AssetsScreen> {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: isDraggingOver
-                ? color.withValues(alpha: 0.1)
-                : Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(12),
+                ? color.withValues(alpha: 0.05)
+                : AppColors.background,
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isDraggingOver ? color : Colors.grey.shade200,
-              width: isDraggingOver ? 2 : 1,
+              color: isDraggingOver
+                  ? color
+                  : Colors.transparent, // Cleaner look
+              width: isDraggingOver ? 2 : 0,
             ),
           ),
           child: assets.isEmpty
